@@ -256,4 +256,4 @@ openclaw security audit --fix
 
 ---
 
-**Version**: 1.3.1 | **Updated**: 2026-02-14
+**Version**: 1.3.2 | **Updated**: 2026-02-23
