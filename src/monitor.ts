@@ -1,11 +1,20 @@
 import type { OpenClawConfig, MarkdownTableMode, RuntimeEnv } from "openclaw/plugin-sdk";
-import { createReplyPrefixOptions, mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk";
-import { ThreadType, type API, type Message, type UserMessage, type GroupMessage } from "zca-js";
+import {
+  createReplyPrefixOptions,
+  createTypingCallbacks,
+  logTypingFailure,
+  logAckFailure,
+  mergeAllowlist,
+  summarizeMapping,
+} from "openclaw/plugin-sdk";
+import { ThreadType, FriendEventType, Reactions, type API, type Message, type UserMessage, type GroupMessage, type FriendEvent } from "zca-js";
 import type { ResolvedZaloPersonalAccount, ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalMessage } from "./types.js";
 import { getZaloPersonalRuntime } from "./runtime.js";
 import { sendMessageZaloPersonal } from "./send.js";
 import { getApi, getCurrentUid } from "./zalo-client.js";
 import { downloadImagesFromUrls } from "./image-downloader.js";
+import { addPendingRequest, removePendingRequest } from "./friend-request-store.js";
+import { refreshCredentials } from "./credentials.js";
 
 export type ZaloPersonalMonitorOptions = {
   account: ResolvedZaloPersonalAccount;
@@ -469,36 +478,150 @@ async function processMessage(
     accountId: account.accountId,
   });
 
-  await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: ctxPayload,
-    cfg: config,
-    dispatcherOptions: {
-      ...prefixOptions,
-      deliver: async (payload) => {
-        await deliverZaloPersonalReply({
-          payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string },
-          chatId,
-          isGroup,
-          runtime,
-          core,
-          config,
-          accountId: account.accountId,
-          statusSink,
-          tableMode: core.channel.text.resolveMarkdownTableMode({
-            cfg: config,
-            channel: "zalo-personal",
-            accountId: account.accountId,
-          }),
+  // --- Ack Reaction: react emoji on the inbound message ---
+  const ackReaction = (config.messages?.ackReaction ?? "").trim();
+  const ackScope = config.messages?.ackReactionScope ?? "group-mentions";
+  const removeAckAfterReply = config.messages?.removeAckAfterReply ?? false;
+
+  const shouldAck = Boolean(
+    ackReaction &&
+      core.channel.reactions.shouldAckReaction({
+        scope: ackScope,
+        isDirect: !isGroup,
+        isGroup,
+        isMentionableGroup: isGroup,
+        requireMention: false,
+        canDetectMention: false,
+        effectiveWasMentioned: true,
+        shouldBypassMention: true,
+      }),
+  );
+
+  let ackReactionPromise: Promise<boolean> | null = null;
+  if (shouldAck && message.msgId && message.cliMsgId) {
+    const ackMsgId = message.msgId;
+    const ackCliMsgId = message.cliMsgId;
+    ackReactionPromise = (async () => {
+      try {
+        const api = await getApi();
+        const type = isGroup ? ThreadType.Group : ThreadType.User;
+        const iconMap: Record<string, Reactions> = {
+          heart: Reactions.HEART,
+          love: Reactions.HEART,
+          like: Reactions.LIKE,
+          haha: Reactions.HAHA,
+          wow: Reactions.WOW,
+          sad: Reactions.CRY,
+          cry: Reactions.CRY,
+          angry: Reactions.ANGRY,
+          "👍": Reactions.LIKE,
+          "❤️": Reactions.HEART,
+          "😆": Reactions.HAHA,
+          "😮": Reactions.WOW,
+          "😢": Reactions.CRY,
+          "😠": Reactions.ANGRY,
+          "👀": Reactions.SURPRISE,
+        };
+        const reactionIcon = iconMap[ackReaction.toLowerCase()] ?? (ackReaction as Reactions);
+        await api.addReaction(reactionIcon, {
+          data: { msgId: ackMsgId, cliMsgId: ackCliMsgId },
+          threadId: chatId,
+          type,
         });
-      },
-      onError: (err, info) => {
-        runtime.error(`[${account.accountId}] ZaloPersonal ${info.kind} reply failed: ${String(err)}`);
-      },
+        return true;
+      } catch (err) {
+        logAckFailure({
+          log: (msg) => logVerbose(core, runtime, msg),
+          channel: "zalo-personal",
+          target: chatId,
+          error: err,
+        });
+        return false;
+      }
+    })();
+  }
+
+  // --- Typing indicator: show "typing..." while processing ---
+  const typingCallbacks = createTypingCallbacks({
+    start: async () => {
+      const api = await getApi();
+      const type = isGroup ? ThreadType.Group : ThreadType.User;
+      await api.sendTypingEvent(chatId, type);
     },
-    replyOptions: {
-      onModelSelected,
+    onStartError: (err) => {
+      logTypingFailure({
+        log: (msg) => logVerbose(core, runtime, msg),
+        channel: "zalo-personal",
+        target: chatId,
+        action: "start",
+        error: err,
+      });
     },
   });
+
+  try {
+    await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: ctxPayload,
+      cfg: config,
+      dispatcherOptions: {
+        ...prefixOptions,
+        deliver: async (payload) => {
+          await deliverZaloPersonalReply({
+            payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string },
+            chatId,
+            isGroup,
+            runtime,
+            core,
+            config,
+            accountId: account.accountId,
+            statusSink,
+            tableMode: core.channel.text.resolveMarkdownTableMode({
+              cfg: config,
+              channel: "zalo-personal",
+              accountId: account.accountId,
+            }),
+          });
+        },
+        onError: (err, info) => {
+          runtime.error(`[${account.accountId}] ZaloPersonal ${info.kind} reply failed: ${String(err)}`);
+        },
+        onReplyStart: typingCallbacks.onReplyStart,
+        onIdle: typingCallbacks.onIdle,
+        onCleanup: typingCallbacks.onCleanup,
+      },
+      replyOptions: {
+        onModelSelected,
+      },
+    });
+  } finally {
+    // --- Remove ack reaction after reply (if configured) ---
+    if (shouldAck && message.msgId && message.cliMsgId) {
+      const removeMsgId = message.msgId;
+      const removeCliMsgId = message.cliMsgId;
+      core.channel.reactions.removeAckReactionAfterReply({
+        removeAfterReply: removeAckAfterReply,
+        ackReactionPromise,
+        ackReactionValue: ackReaction || null,
+        remove: async () => {
+          const api = await getApi();
+          const type = isGroup ? ThreadType.Group : ThreadType.User;
+          await api.addReaction(Reactions.NONE, {
+            data: { msgId: removeMsgId, cliMsgId: removeCliMsgId },
+            threadId: chatId,
+            type,
+          });
+        },
+        onError: (err) => {
+          logAckFailure({
+            log: (msg) => logVerbose(core, runtime, msg),
+            channel: "zalo-personal",
+            target: chatId,
+            error: err,
+          });
+        },
+      });
+    }
+  }
 }
 
 async function deliverZaloPersonalReply(params: {
@@ -569,6 +692,7 @@ export async function monitorZaloPersonalProvider(
   const core = getZaloPersonalRuntime();
   let stopped = false;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
+  let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   let resolveRunning: (() => void) | null = null;
 
   // Resolve allowFrom name→id mappings using zca-js API
@@ -807,6 +931,10 @@ export async function monitorZaloPersonalProvider(
       clearTimeout(restartTimer);
       restartTimer = null;
     }
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+    }
     resolveRunning?.();
   };
 
@@ -845,6 +973,26 @@ export async function monitorZaloPersonalProvider(
         });
       });
 
+      api.listener.on("friend_event", (event: FriendEvent) => {
+        try {
+          if (event.type === FriendEventType.REQUEST && !event.isSelf) {
+            const data = event.data as { fromUid: string; message: string; src?: number };
+            addPendingRequest(data.fromUid, data.message, data.src);
+            runtime.log?.(`[${account.accountId}] incoming friend request from ${data.fromUid}: ${data.message}`);
+          } else if (event.type === FriendEventType.UNDO_REQUEST) {
+            const data = event.data as { fromUid: string };
+            removePendingRequest(data.fromUid);
+            runtime.log?.(`[${account.accountId}] friend request undone by ${data.fromUid}`);
+          } else if (event.type === FriendEventType.ADD) {
+            // Friend added - remove from pending
+            const uid = event.data as string;
+            removePendingRequest(uid);
+          }
+        } catch (err) {
+          runtime.error(`[${account.accountId}] friend event error: ${String(err)}`);
+        }
+      });
+
       api.listener.on("error", (err: unknown) => {
         const errMsg = err instanceof Error ? err.message : JSON.stringify(err);
         runtime.error(`[${account.accountId}] zca-js listener error: ${errMsg}`);
@@ -852,14 +1000,48 @@ export async function monitorZaloPersonalProvider(
 
       api.listener.on("closed", (code: number, reason: string) => {
         runtime.log?.(`[${account.accountId}] zca-js listener closed: code=${code} reason=${reason}`);
+        if (keepAliveTimer) {
+          clearInterval(keepAliveTimer);
+          keepAliveTimer = null;
+        }
         // Let retryOnClose handle reconnection automatically; only resolve if stopped
         if (stopped || abortSignal.aborted) {
           resolveRunning?.();
         }
       });
 
+      api.listener.on("connected", () => {
+        logVerbose(core, runtime, `[${account.accountId}] zca-js listener connected`);
+      });
+
       // Use retryOnClose to let zca-js handle reconnection — do NOT also restart manually
       api.listener.start({ retryOnClose: true });
+
+      // keepAlive heartbeat using server-recommended interval
+      // Side-effect: HTTP requests trigger Set-Cookie refresh, which we persist to disk
+      // This ensures gateway restarts can reuse valid session cookies
+      const keepaliveDuration = api.getContext().settings?.keepalive?.keepalive_duration;
+      if (keepaliveDuration && keepaliveDuration > 0) {
+        const intervalMs = keepaliveDuration * 1000;
+        runtime.log?.(`[${account.accountId}] keepAlive enabled: ${keepaliveDuration}s interval (${intervalMs}ms)`);
+
+        keepAliveTimer = setInterval(async () => {
+          if (stopped || abortSignal.aborted) return;
+          try {
+            await api.keepAlive();
+            // Persist refreshed cookies to disk (request() auto-updates CookieJar in RAM)
+            const jar = api.getCookie();
+            const serialized = jar.serializeSync?.()?.cookies ?? jar.toJSON?.()?.cookies;
+            if (serialized) {
+              refreshCredentials(serialized);
+            }
+          } catch (err) {
+            runtime.error(`[${account.accountId}] keepAlive failed: ${String(err)}`);
+          }
+        }, intervalMs);
+      } else {
+        runtime.log?.(`[${account.accountId}] keepAlive disabled (no server-provided duration)`);
+      }
     } catch (err) {
       runtime.error(`[${account.accountId}] zca-js listener start failed: ${String(err)}`);
       if (!stopped && !abortSignal.aborted) {

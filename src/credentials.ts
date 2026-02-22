@@ -36,3 +36,10 @@ export function deleteCredentials(): void {
 export function hasCredentials(): boolean {
   return existsSync(CREDENTIALS_PATH);
 }
+
+export function refreshCredentials(freshCookies: unknown): void {
+  const existing = loadCredentials();
+  if (!existing) return;
+  existing.cookie = freshCookies;
+  saveCredentials(existing);
+}

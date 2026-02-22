@@ -1,6 +1,7 @@
 {
   "name": "zalo-personal",
   "version": "1.3.1",
+  "private": true,
   "description": "OpenClaw extension for Zalo Personal Account via zca-js library. Login via QR code, no CLI tools needed. Works with OpenClaw 2026.2+",
   "type": "module",
   "main": "./index.ts",
@@ -38,7 +39,7 @@
     "zalo-group.jpg"
   ],
   "scripts": {
-    "prepublishOnly": "echo 'Ready to publish!'"
+    "prepublishOnly": "echo 'Publishing disabled during development. Remove \"private\": true to enable.' && exit 1"
   },
   "peerDependencies": {
     "openclaw": ">=2026.2.0"
@@ -48,6 +49,7 @@
     "jsqr": "^1.4.0",
     "pngjs": "^7.0.0",
     "qrcode-terminal": "^0.12.0",
+    "sharp": "^0.34.5",
     "zca-js": "^2.0.4",
     "zod": "^4.3.6"
   },
