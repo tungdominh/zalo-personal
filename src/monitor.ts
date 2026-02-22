@@ -30,6 +30,45 @@ export type ZaloPersonalMonitorResult = {
 
 const ZALOJS_TEXT_LIMIT = 2000;
 
+// --- Name cache: resolve user/group names via API with 1-hour TTL ---
+const nameCache = new Map<string, { name: string; cachedAt: number }>();
+const groupNameCache = new Map<string, { name: string; cachedAt: number }>();
+const NAME_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+async function resolveUserName(userId: string): Promise<string> {
+  const cached = nameCache.get(userId);
+  if (cached && Date.now() - cached.cachedAt < NAME_CACHE_TTL) {
+    return cached.name;
+  }
+  try {
+    const api = await getApi();
+    const userInfo = await api.getUserInfo(userId);
+    const profile = (userInfo as any)?.changed_profiles?.[userId];
+    const name = profile?.displayName || profile?.zaloName || userId;
+    nameCache.set(userId, { name, cachedAt: Date.now() });
+    return name;
+  } catch {
+    return userId;
+  }
+}
+
+async function resolveGroupName(groupId: string): Promise<string> {
+  const cached = groupNameCache.get(groupId);
+  if (cached && Date.now() - cached.cachedAt < NAME_CACHE_TTL) {
+    return cached.name;
+  }
+  try {
+    const api = await getApi();
+    const infoResp = await api.getGroupInfo([groupId]);
+    const info = infoResp?.gridInfoMap?.[groupId];
+    const name = (info as any)?.name || `group:${groupId}`;
+    groupNameCache.set(groupId, { name, cachedAt: Date.now() });
+    return name;
+  } catch {
+    return `group:${groupId}`;
+  }
+}
+
 function normalizeZaloPersonalEntry(entry: string): string {
   return entry.replace(/^(zalo-personal|zp):/i, "").trim();
 }
@@ -233,7 +272,7 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
     timestamp,
     metadata: {
       isGroup,
-      threadName: isGroup ? (data as any).idTo ?? threadId : undefined,
+      groupId: isGroup ? threadId : undefined,
       senderName,
       fromId: senderId,
     },
@@ -256,7 +295,6 @@ async function processMessage(
   const isGroup = metadata?.isGroup ?? false;
   const senderId = metadata?.fromId ?? threadId;
   const senderName = metadata?.senderName ?? "";
-  const groupName = metadata?.threadName ?? "";
   const chatId = threadId;
 
   // NEW: Global denylist check (runs FIRST, before everything)
@@ -275,7 +313,7 @@ async function processMessage(
   const groups = account.config.groups ?? {};
   if (isGroup) {
     // NEW: Check if user is denied within this specific group
-    if (isUserDeniedInGroup({ senderId, groupId: chatId, groupName, groups })) {
+    if (isUserDeniedInGroup({ senderId, groupId: chatId, groups })) {
       logVerbose(
         core,
         runtime,
@@ -290,7 +328,7 @@ async function processMessage(
       return;
     }
     if (groupPolicy === "allowlist") {
-      const allowed = isGroupAllowed({ groupId: chatId, groupName, groups });
+      const allowed = isGroupAllowed({ groupId: chatId, groups });
       if (!allowed) {
         logVerbose(core, runtime, `'zalo-personal': drop group ${chatId} (not allowlisted)`);
         return;
@@ -394,7 +432,11 @@ async function processMessage(
     },
   });
 
-  const fromLabel = isGroup ? `group:${chatId}` : senderName || `user:${senderId}`;
+  // Resolve session label: use actual group/user names instead of raw IDs
+  const resolvedSenderName = senderName || await resolveUserName(senderId);
+  const fromLabel = isGroup
+    ? await resolveGroupName(chatId)
+    : resolvedSenderName || `user:${senderId}`;
   const storePath = core.channel.session.resolveStorePath(config.session?.store, {
     agentId: route.agentId,
   });
@@ -403,6 +445,11 @@ async function processMessage(
     storePath,
     sessionKey: route.sessionKey,
   });
+
+  // Prepend sender context for group messages so the AI knows who sent what
+  const bodyWithSender = isGroup
+    ? `[userId: ${senderId}, name: ${resolvedSenderName}]: ${rawBody}`
+    : rawBody;
 
   // Download media URLs to local files for native image support (BEFORE creating body)
   let localMediaPaths: string[] | undefined;
@@ -419,13 +466,13 @@ async function processMessage(
   }
 
   // Append media to body - use LOCAL paths if downloaded, otherwise URLs
-  let bodyForEnvelope = rawBody;
+  let bodyForEnvelope = bodyWithSender;
   const mediaPathsForBody = localMediaPaths && localMediaPaths.length > 0 ? localMediaPaths : message.mediaUrls;
   if (mediaPathsForBody && mediaPathsForBody.length > 0) {
     const mediaInfo = mediaPathsForBody.map((path, idx) =>
       `[Image ${idx + 1}: ${path}]`
     ).join('\n');
-    bodyForEnvelope = `${rawBody}\n\n${mediaInfo}`;
+    bodyForEnvelope = `${bodyWithSender}\n\n${mediaInfo}`;
   }
 
   const body = core.channel.reply.formatAgentEnvelope({
@@ -447,7 +494,7 @@ async function processMessage(
     AccountId: route.accountId,
     ChatType: isGroup ? "group" : "direct",
     ConversationLabel: fromLabel,
-    SenderName: senderName || undefined,
+    SenderName: resolvedSenderName || undefined,
     SenderId: senderId,
     CommandAuthorized: commandAuthorized,
     Provider: "zalo-personal",

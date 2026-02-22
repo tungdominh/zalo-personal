@@ -77,7 +77,7 @@ export type ZaloPersonalMessage = {
   timestamp: number;
   metadata?: {
     isGroup: boolean;
-    threadName?: string;
+    groupId?: string;
     senderName?: string;
     fromId?: string;
   };
