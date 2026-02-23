@@ -25,6 +25,11 @@ Script tự động cài extension, hiện QR code để đăng nhập, và rest
 
 Đã cài rồi? Chạy lại script để cập nhật hoặc cấu hình lại.
 
+<p align="center">
+  <sub>Dự án này miễn phí và được duy trì nhờ sự ủng hộ của cộng đồng</sub><br/>
+  <a href="#-ủng-hộ-dự-án"><img src="https://raw.githubusercontent.com/caochitam/zalo-personal/main/momo-caochitam.jpg" alt="Ủng hộ qua MoMo / Ngân hàng" width="180" /></a>
+</p>
+
 ---
 
 ## Tại Sao Chọn Zalo Personal?
@@ -45,7 +50,7 @@ Kiểm soát ai được nhắn tin với bot qua 4 chế độ: Pairing, Allowl
 ### Tự Động Kết Nối Lại
 Mất kết nối? Extension tự động reconnect với retry logic. Keep-alive heartbeat giữ session sống, tự động refresh credentials.
 
-> **Dự án được phát triển bằng Claude Code (AI)** và hoàn toàn miễn phí. Nếu bạn thấy hữu ích, hãy [ủng hộ một ly cà phê](#-ủng-hộ-dự-án) để tác giả có thêm động lực duy trì và phát triển tiếp!
+> **Dự án được phát triển bằng Claude Code (AI)** và hoàn toàn miễn phí. Nếu bạn thấy hữu ích, hãy [ủng hộ tác giả](#-ủng-hộ-dự-án) để có thêm động lực duy trì và phát triển tiếp!
 
 ---
 
@@ -140,6 +145,10 @@ Mất kết nối? Extension tự động reconnect với retry logic. Keep-aliv
 | `create-note` | Tạo ghi chú trong nhóm (có thể ghim) |
 | `search-stickers` | Tìm sticker theo từ khóa |
 | `send-sticker` | Gửi sticker |
+
+<p align="center">
+  <sub><em>167 actions và vẫn đang phát triển thêm — được xây dựng nhờ Claude Code AI. <a href="#-ủng-hộ-dự-án">Ủng hộ</a> để tăng tốc phát triển!</em></sub>
+</p>
 
 ---
 
@@ -294,6 +303,8 @@ openclaw channels login --channel zp
 openclaw gateway restart
 ```
 
+> Gặp vấn đề khác? [Mở issue trên GitHub](https://github.com/caochitam/zalo-personal/issues) — tác giả hỗ trợ nhanh nhờ Claude Code AI.
+
 ---
 
 ## Tech Stack
@@ -304,6 +315,7 @@ openclaw gateway restart
 | **OpenClaw** | AI messaging gateway |
 | **TypeScript** | Type-safe development |
 | **sharp** | Xử lý metadata hình ảnh |
+| **Claude Code** | AI-assisted development |
 
 ---
 
@@ -314,12 +326,12 @@ Dự án **zalo-personal** được phát triển và duy trì bởi một devel
 Chi phí vận hành Claude Code, server test, và thời gian phát triển đều từ túi cá nhân. Nếu extension này giúp ích cho bạn, hãy cân nhắc ủng hộ để dự án tiếp tục được phát triển:
 
 <p align="center">
-  <img src="momo-caochitam.jpg" alt="Ủng hộ qua MoMo / Ngân hàng" width="280" />
+  <img src="https://raw.githubusercontent.com/caochitam/zalo-personal/main/momo-caochitam.jpg" alt="Ủng hộ qua MoMo / Ngân hàng" width="300" />
 </p>
 
 <p align="center">
-  <strong>CAO CHÍ TÂM</strong> — 0964965320<br/>
-  <em>MoMo • VietQR • Napas 247 (40+ ngân hàng)</em>
+  <strong>CAO CHÍ TÂM</strong><br/>
+  <em>Quét mã QR bằng MoMo, app ngân hàng, hoặc ví điện tử hỗ trợ VietQR / Napas 247</em>
 </p>
 
 Mọi đóng góp dù nhỏ đều giúp:
@@ -363,6 +375,7 @@ MIT License — xem [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  <strong>Made with care by caochitam</strong> | <em>Powered by OpenClaw + zca-js + Claude Code</em><br/>
-  <sub>Thích dự án này? <a href="#-ủng-hộ-dự-án">Ủng hộ tác giả</a> để duy trì và phát triển tiếp!</sub>
+  <strong>Made with care by caochitam</strong> | <em>Powered by OpenClaw + zca-js + Claude Code</em><br/><br/>
+  <a href="#-ủng-hộ-dự-án"><img src="https://raw.githubusercontent.com/caochitam/zalo-personal/main/momo-caochitam.jpg" alt="Ủng hộ" width="160" /></a><br/>
+  <sub>Thích dự án này? Quét mã QR để ủng hộ tác giả duy trì và phát triển tiếp!</sub>
 </p>
