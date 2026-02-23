@@ -177,7 +177,7 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
       accountId: account.accountId,
       name: account.name,
       enabled: account.enabled,
-      configured: undefined,
+      configured: hasStoredCredentials(),
     }),
     resolveAllowFrom: ({ cfg, accountId }) =>
       (resolveZaloPersonalAccountSync({ cfg: cfg, accountId }).config.allowFrom ?? []).map((entry) =>
