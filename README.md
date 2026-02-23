@@ -1,6 +1,6 @@
 # Zalo Personal for OpenClaw
 
-> Biến tài khoản Zalo cá nhân thành trợ lý AI thông minh — 167 actions, hỗ trợ hình ảnh, nhóm, bạn bè, và hơn thế nữa.
+> Biến tài khoản Zalo cá nhân thành trợ lý AI thông minh — 178 actions, hỗ trợ hình ảnh, nhóm, bạn bè, và hơn thế nữa.
 
 [![npm version](https://img.shields.io/npm/v/zalo-personal)](https://www.npmjs.com/package/zalo-personal)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -38,7 +38,7 @@ Script tự động cài extension, hiện QR code để đăng nhập, và rest
 Quét QR bằng app Zalo — không cần password, không cần CLI tools, không cần token. Session tự động duy trì với cơ chế keep-alive.
 
 ### 167 Tool Actions
-Extension cung cấp **167 actions** mà AI agent có thể gọi trực tiếp. Đây là bộ công cụ Zalo đầy đủ nhất trên OpenClaw.
+Extension cung cấp **178 actions** mà AI agent có thể gọi trực tiếp. Đây là bộ công cụ Zalo đầy đủ nhất trên OpenClaw.
 
 ### Hình Ảnh 2 Chiều
 - **Nhận ảnh từ Zalo** — AI có thể phân tích, mô tả, hoặc xử lý ảnh người dùng gửi
@@ -147,7 +147,7 @@ Mất kết nối? Extension tự động reconnect với retry logic. Keep-aliv
 | `send-sticker` | Gửi sticker |
 
 <p align="center">
-  <sub><em>167 actions và vẫn đang phát triển thêm — được xây dựng nhờ Claude Code AI. <a href="#-ủng-hộ-dự-án">Ủng hộ</a> để tăng tốc phát triển!</em></sub>
+  <sub><em>178 actions và vẫn đang phát triển thêm — được xây dựng nhờ Claude Code AI. <a href="#-ủng-hộ-dự-án">Ủng hộ</a> để tăng tốc phát triển!</em></sub>
 </p>
 
 ---

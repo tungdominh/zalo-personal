@@ -164,6 +164,18 @@ const ACTIONS = [
   "update-auto-reply",
   "update-active-status",
   "get-biz-account",
+  // Phase 22: zca-js 2.1.0 APIs
+  "find-user-by-username",
+  "get-close-friends",
+  "get-group-chat-history",
+  "get-multi-users-by-phones",
+  "search-sticker-detail",
+  "update-archived-chat",
+  "update-profile-bio",
+  "upgrade-group-to-community",
+  "change-group-avatar",
+  "get-mute-status",
+  "get-pinned-conversations",
 ] as const;
 
 type AgentToolResult = {
@@ -271,6 +283,12 @@ export const ZaloPersonalToolSchema = Type.Object(
     nameAccBank: Type.Optional(Type.String({ description: "Bank account holder name" })),
     scope: Type.Optional(Type.Number({ description: "Auto-reply scope (0=all)" })),
     active: Type.Optional(Type.Boolean({ description: "Active status toggle" })),
+    // Phase 22: zca-js 2.1.0
+    username: Type.Optional(Type.String({ description: "Zalo username for find-user-by-username" })),
+    phoneNumbers: Type.Optional(Type.Array(Type.String(), { description: "Array of phone numbers for multi-user lookup" })),
+    count: Type.Optional(Type.Number({ description: "Number of items to return" })),
+    isArchived: Type.Optional(Type.Boolean({ description: "Archive (true) or unarchive (false) conversation" })),
+    bio: Type.Optional(Type.String({ description: "Profile biography text" })),
   },
   { additionalProperties: false },
 );
@@ -336,6 +354,11 @@ type ToolParams = {
   nameAccBank?: string;
   scope?: number;
   active?: boolean;
+  username?: string;
+  phoneNumbers?: string[];
+  count?: number;
+  isArchived?: boolean;
+  bio?: string;
 };
 
 function json(payload: unknown): AgentToolResult {
@@ -2263,7 +2286,7 @@ export async function executeZaloPersonalTool(
 
       case "get-alias-list": {
         const api = await getApi();
-        const result = await api.getAliasById();
+        const result = await api.getAliasList();
         const items = result?.items ?? [];
         return json({
           aliases: items.map((a: any) => ({
@@ -2607,6 +2630,181 @@ export async function executeZaloPersonalTool(
           message: result?.biz
             ? `Business account info for ${params.userId}`
             : `No business info for ${params.userId}`,
+        });
+      }
+
+      // ========== Phase 22: zca-js 2.1.0 APIs ==========
+
+      case "find-user-by-username": {
+        if (!params.username) {
+          throw new Error("username required for find-user-by-username action");
+        }
+        const api = await getApi();
+        const result = await api.findUserByUsername(params.username);
+        return json({
+          user: result
+            ? {
+                uid: result.uid,
+                displayName: result.display_name,
+                zaloName: result.zalo_name,
+                avatar: result.avatar,
+                gender: result.gender,
+              }
+            : null,
+          message: result ? `Found user: ${result.display_name}` : "User not found",
+        });
+      }
+
+      case "get-close-friends": {
+        const api = await getApi();
+        const result = await api.getCloseFriends();
+        const friends = result ?? [];
+        return json({
+          friends: friends.map((f: any) => ({
+            userId: f.userId,
+            displayName: f.displayName,
+            zaloName: f.zaloName,
+            avatar: f.avatar,
+          })),
+          count: friends.length,
+          message: `${friends.length} close friend(s)`,
+        });
+      }
+
+      case "get-group-chat-history": {
+        if (!params.groupId) {
+          throw new Error("groupId required for get-group-chat-history action");
+        }
+        const api = await getApi();
+        const groupId = await resolveGroupId(params.groupId);
+        const result = await api.getGroupChatHistory(groupId, params.count ?? 20);
+        const msgs = result?.groupMsgs ?? [];
+        return json({
+          groupId,
+          messages: msgs.map((m: any) => ({
+            msgId: m.msgId,
+            uidFrom: m.uidFrom,
+            content: m.content,
+            ts: m.ts,
+            msgType: m.msgType,
+          })),
+          more: result?.more,
+          count: msgs.length,
+          message: `${msgs.length} message(s) from group history`,
+        });
+      }
+
+      case "get-multi-users-by-phones": {
+        if (!params.phoneNumbers || params.phoneNumbers.length === 0) {
+          throw new Error("phoneNumbers array required for get-multi-users-by-phones action");
+        }
+        const api = await getApi();
+        const result = await api.getMultiUsersByPhones(params.phoneNumbers);
+        const entries = Object.entries(result ?? {});
+        return json({
+          users: entries.map(([phone, user]: [string, any]) => ({
+            phone,
+            uid: user.uid,
+            displayName: user.display_name,
+            zaloName: user.zalo_name,
+            avatar: user.avatar,
+          })),
+          count: entries.length,
+          message: `Found ${entries.length} user(s) by phone numbers`,
+        });
+      }
+
+      case "search-sticker-detail": {
+        if (!params.keyword) {
+          throw new Error("keyword required for search-sticker-detail action");
+        }
+        const api = await getApi();
+        const result = await api.searchSticker(params.keyword, params.count ?? 10);
+        const stickers = result ?? [];
+        return json({
+          stickers: stickers.map((s: any) => ({
+            id: s.id,
+            cateId: s.cateId,
+            type: s.type,
+            spriteUrl: s.spriteUrl,
+          })),
+          count: stickers.length,
+          message: `${stickers.length} sticker(s) found for "${params.keyword}"`,
+        });
+      }
+
+      case "update-archived-chat": {
+        if (!params.threadId) {
+          throw new Error("threadId required for update-archived-chat action");
+        }
+        const api = await getApi();
+        const type = params.isGroup ? 1 : 0;
+        const isArchived = params.isArchived !== false;
+        const result = await api.updateArchivedChatList(isArchived, { id: params.threadId, type });
+        return json({
+          success: true,
+          archived: isArchived,
+          threadId: params.threadId,
+          message: isArchived ? "Conversation archived" : "Conversation unarchived",
+        });
+      }
+
+      case "update-profile-bio": {
+        if (params.bio === undefined) {
+          throw new Error("bio required for update-profile-bio action");
+        }
+        const api = await getApi();
+        await api.updateProfileBio(params.bio);
+        return json({
+          success: true,
+          bio: params.bio,
+          message: params.bio ? `Bio updated to: ${params.bio}` : "Bio cleared",
+        });
+      }
+
+      case "upgrade-group-to-community": {
+        if (!params.groupId) {
+          throw new Error("groupId required for upgrade-group-to-community action");
+        }
+        const api = await getApi();
+        const groupId = await resolveGroupId(params.groupId);
+        await api.upgradeGroupToCommunity(groupId);
+        return json({
+          success: true,
+          groupId,
+          message: `Group ${groupId} upgraded to community`,
+        });
+      }
+
+      case "change-group-avatar": {
+        if (!params.groupId || !params.url) {
+          throw new Error("groupId and url required for change-group-avatar action");
+        }
+        const api = await getApi();
+        const groupId = await resolveGroupId(params.groupId);
+        await api.changeGroupAvatar(params.url, groupId);
+        return json({
+          success: true,
+          groupId,
+          message: `Group avatar changed for ${groupId}`,
+        });
+      }
+
+      case "get-mute-status": {
+        const api = await getApi();
+        const result = await api.getMute();
+        return json({
+          muted: result,
+          message: "Mute status retrieved",
+        });
+      }
+
+      case "get-pinned-conversations": {
+        const api = await getApi();
+        const result = await api.getPinConversations();
+        return json({
+          pinned: result,
+          message: "Pinned conversations retrieved",
         });
       }
 
