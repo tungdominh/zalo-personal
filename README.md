@@ -225,6 +225,37 @@ groups:
       deny: ["bash", "write"]   # Nhóm này bị giới hạn
 ```
 
+### Mention Gating (Chỉ trả lời khi @mention)
+
+Mặc định, bot chỉ trả lời trong group khi được @mention. Tin nhắn không mention sẽ được buffer để bot có ngữ cảnh khi được gọi.
+
+```yaml
+channels:
+  zalo-personal:
+    groupPolicy: open
+    groups:
+      "*":
+        requireMention: true       # Mặc định: cần @mention (default)
+      "Nhóm Hỗ Trợ":
+        requireMention: false      # Nhóm này: trả lời mọi tin nhắn
+      "Nhóm Chung":
+        requireMention: true       # Chỉ trả lời khi @mention
+```
+
+| Cài đặt | Hành vi |
+|---------|---------|
+| `requireMention: true` | Bot chỉ reply khi được @mention. Tin nhắn khác được buffer cho context |
+| `requireMention: false` | Bot reply mọi tin nhắn trong nhóm |
+| Không cấu hình | Mặc định `true` - cần @mention |
+
+**Admin có thể thay đổi qua chat:**
+```
+User: "Tắt chế độ mention cho nhóm này"
+Bot:  (gọi group-mention action) → Đã tắt requireMention cho group 123456
+```
+
+**Context buffering:** Khi bot không được mention, tin nhắn vẫn được lưu tạm (tối đa 50 tin, 4 giờ). Khi được @mention, bot sẽ có đầy đủ ngữ cảnh cuộc trò chuyện để trả lời chính xác.
+
 ---
 
 ## Hệ Thống & Độ Tin Cậy

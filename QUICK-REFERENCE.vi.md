@@ -138,11 +138,26 @@ channels:
 - Tên tự động resolve sang ID
 - Restart gateway sau khi thay đổi
 
+### Mention Gating (Nhóm)
+```yaml
+channels:
+  zalo-personal:
+    groups:
+      "*":
+        requireMention: true       # Mặc định: cần @mention
+      "Nhóm Chat":
+        requireMention: false      # Nhóm này: reply mọi tin
+```
+- Mặc định `requireMention: true` → bot chỉ reply khi @mention
+- Tin nhắn không mention được buffer cho context (50 tin, 4h)
+- Admin thay đổi qua chat: `"Tắt mention cho nhóm này"`
+
 ### AI Tool
 ```
 "Chặn user Bob" → Bot tự block
 "Bỏ chặn Alice" → Bot tự unblock
 "Xem danh sách blocked" → Bot show list
+"Tắt mention cho nhóm này" → Bot set requireMention=false
 ```
 
 ## Xử lý sự cố nhanh
@@ -231,7 +246,7 @@ openclaw security audit --fix
 
 - [ ] ✅ Dùng pairing hoặc allowlist
 - [ ] ✅ Gateway bind = loopback
-- [ ] ✅ Enable mention gating trong group
+- [x] ✅ Enable mention gating trong group
 - [ ] ✅ Không để secrets trong workspace
 - [ ] ✅ Chạy `openclaw security audit --deep`
 - [ ] ✅ Dùng model mạnh nhất

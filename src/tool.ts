@@ -11,6 +11,8 @@ import {
   listBlockedUsers,
   listAllowedUsers,
   listBlockedUsersInGroup,
+  setGroupRequireMention,
+  getGroupRequireMention,
 } from "./config-manager.js";
 import { getPendingRequests, removePendingRequest } from "./friend-request-store.js";
 
@@ -177,6 +179,8 @@ const ACTIONS = [
   "change-group-avatar",
   "get-mute-status",
   "get-pinned-conversations",
+  // Bot Settings
+  "group-mention",
 ] as const;
 
 type AgentToolResult = {
@@ -290,6 +294,8 @@ export const ZaloPersonalToolSchema = Type.Object(
     count: Type.Optional(Type.Number({ description: "Number of items to return" })),
     isArchived: Type.Optional(Type.Boolean({ description: "Archive (true) or unarchive (false) conversation" })),
     bio: Type.Optional(Type.String({ description: "Profile biography text" })),
+    // Bot Settings
+    requireMention: Type.Optional(Type.Boolean({ description: "For group-mention action: true=require @mention, false=reply to all messages" })),
     // Rich text formatting
     styles: Type.Optional(Type.Array(
       Type.Object({
@@ -369,6 +375,7 @@ type ToolParams = {
   count?: number;
   isArchived?: boolean;
   bio?: string;
+  requireMention?: boolean;
 };
 
 function json(payload: unknown): AgentToolResult {
@@ -2857,6 +2864,41 @@ export async function executeZaloPersonalTool(
         return json({
           pinned: result,
           message: "Pinned conversations retrieved",
+        });
+      }
+
+      case "group-mention": {
+        const targetGroupId = params.groupId ?? params.threadId;
+        if (!targetGroupId) {
+          return json({ error: "groupId is required" });
+        }
+
+        // GET: read current setting
+        if (params.requireMention === undefined) {
+          const config = readOpenClawConfig();
+          const current = getGroupRequireMention(config, targetGroupId);
+          return json({
+            groupId: targetGroupId,
+            requireMention: current ?? true,
+            source: current !== undefined ? "config" : "default",
+            message: current ?? true
+              ? `Group ${targetGroupId}: bot only replies when @mentioned`
+              : `Group ${targetGroupId}: bot replies to all messages`,
+          });
+        }
+
+        // SET: update config
+        let config = readOpenClawConfig();
+        config = setGroupRequireMention(config, targetGroupId, params.requireMention);
+        writeOpenClawConfig(config);
+
+        return json({
+          groupId: targetGroupId,
+          requireMention: params.requireMention,
+          message: params.requireMention
+            ? `Group ${targetGroupId}: bot now only replies when @mentioned`
+            : `Group ${targetGroupId}: bot now replies to all messages`,
+          note: "Setting saved. Takes effect after gateway restart or config reload.",
         });
       }
 

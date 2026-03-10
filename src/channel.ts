@@ -78,6 +78,28 @@ function mapGroup(params: {
   };
 }
 
+function resolveZaloPersonalGroupRequireMention(
+  params: ChannelGroupContext,
+): boolean {
+  const account = resolveZaloPersonalAccountSync({
+    cfg: params.cfg,
+    accountId: params.accountId ?? undefined,
+  });
+  const groups = account.config.groups ?? {};
+  const groupId = params.groupId?.trim();
+  const groupChannel = params.groupChannel?.trim();
+  const candidates = [groupId, groupChannel, "*"].filter((value): value is string =>
+    Boolean(value),
+  );
+  for (const key of candidates) {
+    const entry = groups[key];
+    if (entry && typeof entry.requireMention === "boolean") {
+      return entry.requireMention;
+    }
+  }
+  return true; // default: require mention in groups
+}
+
 function resolveZaloPersonalGroupToolPolicy(
   params: ChannelGroupContext,
 ): GroupToolPolicyConfig | undefined {
@@ -121,7 +143,7 @@ export const zaloPersonalDock: ChannelDock = {
         .map((entry) => entry.toLowerCase()),
   },
   groups: {
-    resolveRequireMention: () => true,
+    resolveRequireMention: resolveZaloPersonalGroupRequireMention,
     resolveToolPolicy: resolveZaloPersonalGroupToolPolicy,
   },
   threading: {
@@ -208,7 +230,7 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
     },
   },
   groups: {
-    resolveRequireMention: () => true,
+    resolveRequireMention: resolveZaloPersonalGroupRequireMention,
     resolveToolPolicy: resolveZaloPersonalGroupToolPolicy,
   },
   threading: {

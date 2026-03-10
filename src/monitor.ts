@@ -6,6 +6,7 @@ import {
   logAckFailure,
   mergeAllowlist,
   summarizeMapping,
+  resolveMentionGatingWithBypass,
 } from "openclaw/plugin-sdk";
 import { ThreadType, FriendEventType, Reactions, type API, type Message, type UserMessage, type GroupMessage, type FriendEvent } from "zca-js";
 import type { ResolvedZaloPersonalAccount, ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalMessage } from "./types.js";
@@ -34,6 +35,31 @@ const ZALOJS_TEXT_LIMIT = 2000;
 const nameCache = new Map<string, { name: string; cachedAt: number }>();
 const groupNameCache = new Map<string, { name: string; cachedAt: number }>();
 const NAME_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// --- Group message buffer: stores non-mentioned messages for context ---
+const groupMessageBuffer = new Map<string, Array<{
+  senderName: string;
+  content: string;
+  timestamp: number;
+}>>();
+const GROUP_BUFFER_MAX_MESSAGES = 50;
+const GROUP_BUFFER_MAX_AGE_S = 4 * 60 * 60; // 4 hours
+
+function bufferGroupMessage(groupId: string, entry: { senderName: string; content: string; timestamp: number }): void {
+  let buffer = groupMessageBuffer.get(groupId) ?? [];
+  buffer.push(entry);
+  const cutoff = Math.floor(Date.now() / 1000) - GROUP_BUFFER_MAX_AGE_S;
+  buffer = buffer.filter(m => m.timestamp > cutoff).slice(-GROUP_BUFFER_MAX_MESSAGES);
+  groupMessageBuffer.set(groupId, buffer);
+}
+
+function consumeGroupBuffer(groupId: string): string {
+  const buffer = groupMessageBuffer.get(groupId);
+  if (!buffer || buffer.length === 0) return "";
+  const lines = buffer.map(m => `[${m.senderName}]: ${m.content}`);
+  groupMessageBuffer.delete(groupId);
+  return lines.join("\n");
+}
 
 async function resolveUserName(userId: string): Promise<string> {
   const cached = nameCache.get(userId);
@@ -261,6 +287,11 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
   const senderName = data.dName ?? "";
   const timestamp = data.ts ? parseInt(data.ts, 10) : Math.floor(Date.now() / 1000);
 
+  // Extract mentions from group messages
+  const mentions = isGroup && (msg as GroupMessage).data.mentions
+    ? (msg as GroupMessage).data.mentions
+    : undefined;
+
   return {
     threadId,
     msgId: data.msgId,
@@ -269,6 +300,7 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
     content: content || "[Media]",
     mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
     mediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
+    mentions: mentions ?? undefined,
     timestamp,
     metadata: {
       isGroup,
@@ -418,6 +450,43 @@ async function processMessage(
     return;
   }
 
+  // --- Mention gating for groups ---
+  const selfUid = getCurrentUid();
+  const wasMentioned = isGroup && selfUid
+    ? (message.mentions ?? []).some(m => m.uid === selfUid)
+    : false;
+
+  // Resolve requireMention: per-group config → wildcard → default true
+  const resolvedRequireMention = isGroup
+    ? resolveGroupMentionSetting(account, chatId)
+    : false;
+
+  const hasControlCommand = core.channel.commands.isControlCommandMessage(rawBody, config);
+
+  if (isGroup && resolvedRequireMention) {
+    const mentionGate = resolveMentionGatingWithBypass({
+      isGroup: true,
+      requireMention: true,
+      canDetectMention: true,
+      wasMentioned,
+      allowTextCommands: true,
+      hasControlCommand,
+      commandAuthorized: commandAuthorized === true,
+    });
+
+    if (mentionGate.shouldSkip) {
+      // Buffer message for context (no AI tokens spent)
+      const resolvedName = senderName || await resolveUserName(senderId);
+      bufferGroupMessage(chatId, {
+        senderName: resolvedName,
+        content: rawBody,
+        timestamp: timestamp ?? Math.floor(Date.now() / 1000),
+      });
+      logVerbose(core, runtime, `Buffered non-mention message in group ${chatId} from ${senderId}`);
+      return;
+    }
+  }
+
   const peer = isGroup
     ? { kind: "group" as const, id: chatId }
     : { kind: "direct" as const, id: senderId };
@@ -446,10 +515,17 @@ async function processMessage(
     sessionKey: route.sessionKey,
   });
 
+  // Inject buffered group context when bot is mentioned
+  const bufferedContext = isGroup ? consumeGroupBuffer(chatId) : "";
+
   // Prepend sender context for group messages so the AI knows who sent what
-  const bodyWithSender = isGroup
+  let bodyWithSender = isGroup
     ? `[userId: ${senderId}, name: ${resolvedSenderName}]: ${rawBody}`
     : rawBody;
+
+  if (bufferedContext) {
+    bodyWithSender = `[Recent group chat (context only, not addressed to you):\n${bufferedContext}\n]\n\n${bodyWithSender}`;
+  }
 
   // Download media URLs to local files for native image support (BEFORE creating body)
   let localMediaPaths: string[] | undefined;
@@ -669,6 +745,18 @@ async function processMessage(
       });
     }
   }
+}
+
+function resolveGroupMentionSetting(account: ResolvedZaloPersonalAccount, groupId: string): boolean {
+  const groups = account.config.groups ?? {};
+  const candidates = [groupId, `group:${groupId}`, "*"];
+  for (const key of candidates) {
+    const entry = groups[key];
+    if (entry && typeof entry.requireMention === "boolean") {
+      return entry.requireMention;
+    }
+  }
+  return true; // default: require mention in groups
 }
 
 const THINKING_TAG_RE = /^\s*<(?:think|thinking|thought|antthinking)\b[^>]*>/i;

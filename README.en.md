@@ -197,6 +197,31 @@ channels:
         allow: true        # No blocks, everyone in group can use bot
 ```
 
+### Mention Gating (Groups)
+
+By default, the bot only replies in groups when @mentioned. Non-mentioned messages are buffered for context.
+
+```yaml
+channels:
+  zalo-personal:
+    groupPolicy: open
+    groups:
+      "*":
+        requireMention: true       # Default: require @mention
+      "Support Group":
+        requireMention: false      # This group: reply to all messages
+```
+
+| Setting | Behavior |
+|---------|----------|
+| `requireMention: true` | Bot only replies when @mentioned. Other messages buffered for context |
+| `requireMention: false` | Bot replies to all messages in the group |
+| Not configured | Defaults to `true` |
+
+**Context buffering:** Non-mentioned messages are buffered (max 50 msgs, 4h). When @mentioned, the bot injects buffered context so AI understands the conversation.
+
+**Admin can configure via chat** using the `group-mention` tool action.
+
 ### Name Resolution
 
 - Bot automatically resolves names to IDs at startup

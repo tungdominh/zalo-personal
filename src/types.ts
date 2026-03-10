@@ -10,6 +10,7 @@ export type ZaloPersonalAccountConfig = {
     {
       allow?: boolean;
       enabled?: boolean;
+      requireMention?: boolean;
       denyUsers?: Array<string | number>;
       tools?: { allow?: string[]; deny?: string[] };
     }
@@ -31,6 +32,7 @@ export type ZaloPersonalConfig = {
     {
       allow?: boolean;
       enabled?: boolean;
+      requireMention?: boolean;
       denyUsers?: Array<string | number>;
       tools?: { allow?: string[]; deny?: string[] };
     }
@@ -74,6 +76,7 @@ export type ZaloPersonalMessage = {
   content: string;
   mediaUrls?: string[];    // Media URLs (images, videos, etc.)
   mediaTypes?: string[];   // MIME types corresponding to mediaUrls
+  mentions?: Array<{ uid: string; pos: number; len: number; type: 0 | 1 }>;
   timestamp: number;
   metadata?: {
     isGroup: boolean;

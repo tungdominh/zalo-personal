@@ -2,6 +2,25 @@
 
 All notable changes to the zalo-personal OpenClaw extension will be documented in this file.
 
+## [1.5.0] - 2026-03-10
+
+### Added
+- **Group Mention Gating**: Bot only replies when @mentioned in groups (default)
+  - Per-group `requireMention` config: `true` (default) or `false`
+  - Wildcard `"*"` support for global default
+  - Non-mentioned messages buffered for context (max 50 msgs, 4h TTL)
+  - When @mentioned, buffered context injected so AI understands conversation
+  - Control commands bypass mention requirement for authorized admins
+  - New `group-mention` tool action for admin to configure via chat
+- **Thinking/Reasoning Filter**: Strip AI thinking blocks from Zalo replies
+  - Check `isReasoning` flag, detect `<think>` tags, strip embedded thinking
+- **Rich Text Auto-Convert**: Markdown → Zalo styles in replies
+  - New `send-styled` tool action for explicit rich text formatting
+
+### Changed
+- `resolveRequireMention` reads from per-group config instead of hardcoding `true`
+- Default `dmPolicy` changed to `"open"` with `allowFrom: ["*"]`
+
 ## [1.3.1] - 2026-02-14
 
 ### Fixed

@@ -7,6 +7,7 @@ const denyFromEntry = z.union([z.string(), z.number()]);
 const groupConfigSchema = z.object({
   allow: z.boolean().optional(),
   enabled: z.boolean().optional(),
+  requireMention: z.boolean().optional(),
   denyUsers: z.array(denyFromEntry).optional(),
   tools: ToolPolicySchema,
 });

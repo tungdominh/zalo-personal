@@ -177,3 +177,47 @@ export function listBlockedUsersInGroup(config: OpenClawConfig, groupId: string)
   const groupConfig = zpConfig.groups?.[groupId];
   return groupConfig?.denyUsers ?? [];
 }
+
+/**
+ * Set requireMention for a specific group
+ */
+export function setGroupRequireMention(
+  config: OpenClawConfig,
+  groupId: string,
+  requireMention: boolean,
+): OpenClawConfig {
+  const zpConfig = getZaloPersonalConfig(config);
+  const groups = zpConfig.groups ?? {};
+  const groupConfig = groups[groupId] ?? {};
+
+  return updateZaloPersonalConfig(config, {
+    groups: {
+      ...groups,
+      [groupId]: {
+        ...groupConfig,
+        requireMention,
+      },
+    },
+  });
+}
+
+/**
+ * Get requireMention setting for a specific group.
+ * Checks groupId first, then wildcard "*", then returns undefined (use default).
+ */
+export function getGroupRequireMention(
+  config: OpenClawConfig,
+  groupId: string,
+): boolean | undefined {
+  const zpConfig = getZaloPersonalConfig(config);
+  const groups = zpConfig.groups ?? {};
+  const direct = groups[groupId];
+  if (direct && typeof direct.requireMention === "boolean") {
+    return direct.requireMention;
+  }
+  const wildcard = groups["*"];
+  if (wildcard && typeof wildcard.requireMention === "boolean") {
+    return wildcard.requireMention;
+  }
+  return undefined;
+}
