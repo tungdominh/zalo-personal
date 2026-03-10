@@ -16,6 +16,7 @@ import { getPendingRequests, removePendingRequest } from "./friend-request-store
 
 const ACTIONS = [
   "send",
+  "send-styled",
   "image",
   "link",
   "friends",
@@ -196,9 +197,9 @@ function stringEnum<T extends readonly string[]>(
 
 export const ZaloPersonalToolSchema = Type.Object(
   {
-    action: stringEnum(ACTIONS, { description: `Action to perform: ${ACTIONS.join(", ")}` }),
+    action: stringEnum(ACTIONS, { description: `Action to perform. send=plain text, send-styled=rich text with bold/italic/underline/colors (use markdown in message or provide explicit styles array). All actions: ${ACTIONS.join(", ")}` }),
     threadId: Type.Optional(Type.String({ description: "Thread ID for messaging" })),
-    message: Type.Optional(Type.String({ description: "Message text" })),
+    message: Type.Optional(Type.String({ description: "Message text. For send-styled: supports markdown **bold**, *italic*, __underline__, ~~strikethrough~~" })),
     isGroup: Type.Optional(Type.Boolean({ description: "Is group chat" })),
     query: Type.Optional(Type.String({ description: "Search query for users/groups" })),
     url: Type.Optional(Type.String({ description: "URL for media/link" })),
@@ -289,6 +290,15 @@ export const ZaloPersonalToolSchema = Type.Object(
     count: Type.Optional(Type.Number({ description: "Number of items to return" })),
     isArchived: Type.Optional(Type.Boolean({ description: "Archive (true) or unarchive (false) conversation" })),
     bio: Type.Optional(Type.String({ description: "Profile biography text" })),
+    // Rich text formatting
+    styles: Type.Optional(Type.Array(
+      Type.Object({
+        start: Type.Number({ description: "Start position in text" }),
+        len: Type.Number({ description: "Length of styled text" }),
+        st: Type.String({ description: "Style type: b=bold, i=italic, u=underline, s=strikethrough, c_db342e=red, c_f27806=orange, c_f7b503=yellow, c_15a85f=green, f_13=small, f_18=big" }),
+      }),
+      { description: "Text styles array for send-styled action. Or use markdown in message: **bold**, *italic*, __underline__, ~~strike~~" },
+    )),
   },
   { additionalProperties: false },
 );
@@ -454,6 +464,35 @@ export async function executeZaloPersonalTool(
           type,
         );
         return json({ success: true, messageId: result?.message?.msgId });
+      }
+
+      case "send-styled": {
+        if (!params.threadId || !params.message) {
+          throw new Error("threadId and message required for send-styled action");
+        }
+        const api = await getApi();
+        const type = params.isGroup ? ThreadType.Group : ThreadType.User;
+        let msg = params.message;
+        let styles = params.styles as any[] | undefined;
+
+        // If no explicit styles provided, auto-convert markdown in message
+        if (!styles || styles.length === 0) {
+          const { markdownToZaloStyles } = await import("./send.js");
+          const converted = markdownToZaloStyles(msg);
+          msg = converted.text;
+          styles = converted.styles;
+        }
+
+        const content: any = { msg };
+        if (styles && styles.length > 0) {
+          content.styles = styles;
+        }
+        const result = await api.sendMessage(content, params.threadId, type);
+        return json({
+          success: true,
+          messageId: result?.message?.msgId,
+          stylesApplied: styles?.length ?? 0,
+        });
       }
 
       case "image": {

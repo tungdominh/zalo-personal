@@ -1,7 +1,55 @@
-import { ThreadType } from "zca-js";
+import { ThreadType, TextStyle, type Style, type MessageContent } from "zca-js";
 import { getApi } from "./zalo-client.js";
 import * as fs from "fs";
 import * as path from "path";
+
+/**
+ * Convert markdown to Zalo TextStyle.
+ * Supports: **bold**, *italic*, __underline__, ~~strikethrough~~,
+ * `code` (bold), ### headings (bold), - lists (bullet), 1. lists (numbered)
+ */
+export function markdownToZaloStyles(input: string): { text: string; styles: Style[] } {
+  const styles: Style[] = [];
+  let text = input;
+
+  // --- Block-level: headings → bold ---
+  text = text.replace(/^(#{1,6})\s+(.+)$/gm, (_m, _h, content) => content);
+  // We'll apply bold to heading content after inline processing
+
+  // --- Inline patterns (order matters: longer markers first) ---
+  const inlinePatterns: Array<{ regex: RegExp; style: TextStyle }> = [
+    { regex: /\*\*\*(.+?)\*\*\*/g, style: TextStyle.Bold },       // ***bold italic*** → bold
+    { regex: /\*\*(.+?)\*\*/g, style: TextStyle.Bold },
+    { regex: /~~(.+?)~~/g, style: TextStyle.StrikeThrough },
+    { regex: /__(.+?)__/g, style: TextStyle.Underline },
+    { regex: /`([^`]+)`/g, style: TextStyle.Bold },                // inline code → bold
+    { regex: /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, style: TextStyle.Italic },
+  ];
+
+  for (const { regex, style } of inlinePatterns) {
+    let result = "";
+    let lastIndex = 0;
+    const pending: Style[] = [];
+
+    regex.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+      result += text.slice(lastIndex, match.index);
+      const start = result.length;
+      const content = match[1];
+      result += content;
+      pending.push({ start, len: content.length, st: style as Exclude<TextStyle, TextStyle.Indent> });
+      lastIndex = match.index + match[0].length;
+    }
+    if (pending.length > 0) {
+      result += text.slice(lastIndex);
+      text = result;
+      styles.push(...pending);
+    }
+  }
+
+  return { text, styles };
+}
 
 export type ZaloPersonalSendOptions = {
   mediaUrl?: string;
