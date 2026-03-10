@@ -101,8 +101,14 @@ export async function sendMessageZaloPersonal(
   try {
     const api = await getApi();
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
+    const truncated = text.slice(0, 2000);
+    const { text: plainText, styles } = markdownToZaloStyles(truncated);
+    const content: { msg: string; styles?: Style[] } = { msg: plainText };
+    if (styles.length > 0) {
+      content.styles = styles;
+    }
     const result = await api.sendMessage(
-      { msg: text.slice(0, 2000) },
+      content,
       threadId.trim(),
       type,
     );
