@@ -614,7 +614,7 @@ async function processMessage(
         ...prefixOptions,
         deliver: async (payload) => {
           await deliverZaloPersonalReply({
-            payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string },
+            payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean },
             chatId,
             isGroup,
             runtime,
@@ -671,8 +671,23 @@ async function processMessage(
   }
 }
 
+const THINKING_TAG_RE = /^\s*<(?:think|thinking|thought|antthinking)\b[^>]*>/i;
+const REASONING_PREFIX = "Reasoning:\n";
+
+function isReasoningOnlyMessage(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith(REASONING_PREFIX)) return true;
+  if (THINKING_TAG_RE.test(trimmed)) return true;
+  return false;
+}
+
+function stripThinkingTags(text: string): string {
+  return text.replace(/<(?:think|thinking|thought|antthinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking|thought|antthinking)>/gi, "").trim();
+}
+
 async function deliverZaloPersonalReply(params: {
-  payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string };
+  payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean };
   chatId: string;
   isGroup: boolean;
   runtime: RuntimeEnv;
@@ -683,8 +698,22 @@ async function deliverZaloPersonalReply(params: {
   tableMode?: MarkdownTableMode;
 }): Promise<void> {
   const { payload, chatId, isGroup, runtime, core, config, accountId, statusSink } = params;
+
+  // Skip reasoning-only blocks (thinking/internal reasoning should not be sent to Zalo)
+  if (payload.isReasoning) {
+    logVerbose(core, runtime, `Skipping reasoning block for ${chatId}`);
+    return;
+  }
+
   const tableMode = params.tableMode ?? "code";
-  const text = core.channel.text.convertMarkdownTables(payload.text ?? "", tableMode);
+  let text = core.channel.text.convertMarkdownTables(payload.text ?? "", tableMode);
+
+  // Safety net: strip any thinking tags that slipped through
+  if (text && isReasoningOnlyMessage(text)) {
+    logVerbose(core, runtime, `Skipping reasoning-only message for ${chatId}`);
+    return;
+  }
+  text = stripThinkingTags(text);
 
   const mediaList = payload.mediaUrls?.length
     ? payload.mediaUrls
