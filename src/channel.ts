@@ -198,8 +198,8 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
         ? `channels['zalo-personal'].accounts.${resolvedAccountId}.`
         : "channels['zalo-personal'].";
       return {
-        policy: account.config.dmPolicy ?? "pairing",
-        allowFrom: account.config.allowFrom ?? [],
+        policy: account.config.dmPolicy ?? "open",
+        allowFrom: account.config.allowFrom ?? ["*"],
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
         approveHint: formatPairingApproveHint("zalo-personal"),
@@ -293,7 +293,8 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
       try {
         const { getApi } = await import("./zalo-client.js");
         const api = await getApi();
-        const info = await api.fetchAccountInfo();
+        const raw = await api.fetchAccountInfo();
+        const info = (raw as any)?.profile ?? raw;
         if (!info?.userId) {
           return null;
         }
@@ -649,7 +650,7 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
           : (runtime?.lastError ?? "not authenticated"),
         lastInboundAt: runtime?.lastInboundAt ?? null,
         lastOutboundAt: runtime?.lastOutboundAt ?? null,
-        dmPolicy: account.config.dmPolicy ?? "pairing",
+        dmPolicy: account.config.dmPolicy ?? "open",
       };
     },
   },

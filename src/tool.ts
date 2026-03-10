@@ -563,12 +563,25 @@ export async function executeZaloPersonalTool(
 
       case "me": {
         const api = await getApi();
-        const info = await api.fetchAccountInfo();
-        return json(info ? {
-          userId: info.userId,
-          displayName: info.displayName,
-          avatar: info.avatar,
-        } : null);
+        const ownId = api.getOwnId();
+        let raw: any = null;
+        try {
+          raw = await api.fetchAccountInfo();
+        } catch {
+          // fetchAccountInfo may fail for some account types
+        }
+        // zca-js wraps result in { profile: { ... } } or returns flat object
+        const info = raw?.profile ?? raw;
+        return json({
+          userId: info?.userId ?? ownId ?? null,
+          displayName: info?.displayName ?? null,
+          zaloName: info?.zaloName ?? null,
+          avatar: info?.avatar ?? null,
+          status: info?.status ?? null,
+          phoneNumber: info?.phoneNumber ?? null,
+          gender: info?.gender ?? null,
+          dob: info?.sdob ?? null,
+        });
       }
 
       case "status": {

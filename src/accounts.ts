@@ -108,7 +108,8 @@ export async function getZaloPersonalUserInfo(): Promise<{ userId?: string; disp
   try {
     const { getApi } = await import("./zalo-client.js");
     const api = await getApi();
-    const info = await api.fetchAccountInfo();
+    const raw = await api.fetchAccountInfo();
+    const info = (raw as any)?.profile ?? raw;
     return info ? { userId: info.userId, displayName: info.displayName } : null;
   } catch {
     return null;

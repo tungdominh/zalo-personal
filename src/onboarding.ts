@@ -289,7 +289,7 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
   channel,
   policyKey: "channels['zalo-personal'].dmPolicy",
   allowFromKey: "channels['zalo-personal'].allowFrom",
-  getCurrent: (cfg) => (cfg.channels?.['zalo-personal']?.dmPolicy ?? "pairing") as "pairing",
+  getCurrent: (cfg) => (cfg.channels?.['zalo-personal']?.dmPolicy ?? "open") as "open",
   setPolicy: (cfg, policy) => setZaloPersonalDmPolicy(cfg, policy),
   promptAllowFrom: async ({ cfg, prompter, accountId }) => {
     const id =

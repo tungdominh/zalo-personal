@@ -336,8 +336,8 @@ async function processMessage(
     }
   }
 
-  const dmPolicy = account.config.dmPolicy ?? "pairing";
-  const configAllowFrom = (account.config.allowFrom ?? []).map((v) => String(v));
+  const dmPolicy = account.config.dmPolicy ?? "open";
+  const configAllowFrom = (account.config.allowFrom ?? ["*"]).map((v) => String(v));
   const rawBody = content.trim();
   const shouldComputeAuth = core.channel.commands.shouldComputeCommandAuthorized(rawBody, config);
   const storeAllowFrom =

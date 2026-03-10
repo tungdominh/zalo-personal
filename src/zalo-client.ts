@@ -39,7 +39,8 @@ export async function loginWithQR(callback?: QrCallback): Promise<API> {
   });
   apiInstance = api;
   try {
-    const info = await api.fetchAccountInfo();
+    const raw = await api.fetchAccountInfo();
+    const info = (raw as any)?.profile ?? raw;
     currentUid = info?.userId ?? null;
   } catch {
     // non-critical
@@ -61,7 +62,8 @@ export async function loginWithCredentials(): Promise<API> {
   });
   apiInstance = api;
   try {
-    const info = await api.fetchAccountInfo();
+    const raw = await api.fetchAccountInfo();
+    const info = (raw as any)?.profile ?? raw;
     currentUid = info?.userId ?? null;
   } catch {
     // non-critical

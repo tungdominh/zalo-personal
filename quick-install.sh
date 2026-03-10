@@ -236,12 +236,13 @@ fi
 # Choose mode
 echo "🔧 Chọn chế độ hoạt động:"
 echo ""
-echo "  [1] Open Mode - Nhận tin nhắn từ mọi người (khuyến nghị cho test)"
+echo "  [1] Open Mode - Nhận tin nhắn từ mọi người (mặc định, khuyến nghị)"
 echo "  [2] Pairing Mode - Chỉ nhận tin từ người đã pair (an toàn hơn)"
 echo ""
 
 while true; do
-    read -p "Chọn mode [1/2]: " mode_choice
+    read -p "Chọn mode [1/2] (mặc định: 1): " mode_choice
+    mode_choice="${mode_choice:-1}"
     case $mode_choice in
         1)
             MODE="open"

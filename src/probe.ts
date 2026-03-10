@@ -17,16 +17,17 @@ export async function probeZaloPersonal(timeoutMs?: number): Promise<ZaloPersona
         )
       : null;
 
-    let info: any = null;
+    let raw: any = null;
     try {
       const infoPromise = api.fetchAccountInfo();
-      info = timeoutPromise
+      raw = timeoutPromise
         ? await Promise.race([infoPromise, timeoutPromise])
         : await infoPromise;
     } catch {
       // fetchAccountInfo may fail even when the connection is alive
     }
 
+    const info = raw?.profile ?? raw;
     if (info?.userId) {
       return {
         ok: true,
