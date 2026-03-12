@@ -73,11 +73,15 @@ bash <(curl -fsSL https://raw.githubusercontent.com/caochitam/zalo-personal/main
 
 ## Features
 
+- ✅ **141 Tool Actions** - The most comprehensive Zalo toolset on OpenClaw
 - ✅ **QR Code Login** - No CLI tools needed, uses `zca-js` library
 - ✅ **Auto Cleanup** - QR image automatically deleted after login
 - ✅ **Gateway Restart** - Optional restart prompt for certificate recognition
 - ✅ **Pairing Mode** - Control who can message your bot
 - ✅ **Group Support** - Works with both DMs and group chats
+- ✅ **Mention Gating** - Bot only replies when @mentioned in groups (configurable)
+- ✅ **Image Support** - Receive and send images (AI analysis, DALL-E, etc.)
+- ✅ **Rich Text** - Markdown auto-converted to Zalo styles
 - ✅ **Stable & Reliable** - Built on battle-tested zca-js library
 
 ## Login Process
@@ -334,17 +338,25 @@ Tham gia nhóm Zalo để:
 
 ## What's New
 
+### v1.5.0 (2026-03-10)
+- ✅ Group Mention Gating: bot only replies when @mentioned (default)
+- ✅ Per-group `requireMention` config with wildcard `"*"` support
+- ✅ Non-mentioned messages buffered for context (50 msgs, 4h TTL)
+- ✅ Thinking/Reasoning filter: strip AI thinking blocks
+- ✅ Rich Text Auto-Convert: Markdown → Zalo styles
+- ✅ New `group-mention` tool action for admin config via chat
+
+### v1.3.0 (2026-02-14)
+- ✅ Native image input: download images from Zalo for AI processing
+- ✅ Local file upload: send AI-generated images back to Zalo
+- ✅ Image metadata support for zca-js v2.0+
+- ✅ Fixed session routing for DM messages
+
 ### v1.0.7 (2026-02-13)
 - ✅ Smart detection and cleanup of failed installations
 - ✅ Unified `quick-install.sh` script handles all scenarios
 - ✅ Auto-cleanup stale config from previous failed installs
 - ✅ Interactive mode selection (Open/Pairing)
-
-### v1.0.0 (2026-02-12)
-- ✅ Auto-delete QR image after successful login
-- ✅ Display QR file path during login
-- ✅ Optional gateway restart prompt
-- ✅ Cleanup on login failure
 
 ## License
 
@@ -352,6 +364,6 @@ Part of the OpenClaw project
 
 ---
 
-**Version**: 1.0.9
+**Version**: 1.5.0
 **OpenClaw**: 2026.2.9+
-**Last Updated**: 2026-02-13
+**Last Updated**: 2026-03-10

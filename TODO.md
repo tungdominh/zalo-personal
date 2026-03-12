@@ -1,40 +1,26 @@
-# 📋 TODO List - OpenClaw Zalo Personal
+# TODO List - OpenClaw Zalo Personal
 
-## 🔥 DOING NOW - Kết Bạn & Gửi Tin Nhắn Số Lạ
+## Completed (đã implement)
 
-- [ ] Implement `find-user` action (tìm user bằng số điện thoại)
-- [ ] Implement `send-friend-request` action (gửi lời mời kết bạn)
-- [ ] Implement `send-to-stranger` action (gửi tin nhắn không cần kết bạn)
-- [ ] Update `src/tool.ts` - add new actions to schema
-- [ ] Test with real phone numbers
-- [ ] Add error handling
-- [ ] Update README.md
+- [x] `find-user` action (tìm user bằng số điện thoại)
+- [x] `send-friend-request` action (gửi lời mời kết bạn)
+- [x] `send-to-stranger` action (gửi tin nhắn không cần kết bạn)
+- [x] `friends` / `list-friends` / `search-friends` (quản lý bạn bè)
+- [x] `accept-friend-request` / `reject-friend-request`
+- [x] `list-groups` / `get-group-info` / `create-group`
+- [x] `get-user-info` / `me` / `get-qr`
+- [x] Video, voice, sticker upload support
+- [x] Group Mention Gating (`requireMention`)
+- [x] Image input/output support
+- [x] Rich Text Auto-Convert (Markdown → Zalo styles)
+- [x] Blocklist management (global + per-group)
+- [x] `group-mention` admin tool
 
-## 📌 NEXT - High Priority Features
+## LATER - Medium Priority
 
-### Friends Management
-- [ ] `list-friends` action
-- [ ] `search-friends` action
-- [ ] `accept-friend-request` action
-- [ ] `reject-friend-request` action
-
-### Groups Management
-- [ ] `list-groups` action (enhanced)
-- [ ] `get-group-info` action
-- [ ] `create-group` action
-
-### Profile & Auth
-- [ ] `get-my-profile` action
-- [ ] `get-user-profile` action
-- [ ] `check-auth-status` action
-
-## 🚀 LATER - Medium Priority
-
-- [ ] Video upload support
-- [ ] Voice upload support
-- [ ] Auto-restart listener
 - [ ] Streaming buffer optimization
+- [ ] Batch message processing for high-traffic groups
 
 ---
 
-**See [ROADMAP.md](ROADMAP.md) for detailed planning**
+**See [CHANGELOG.md](CHANGELOG.md) for version history**
