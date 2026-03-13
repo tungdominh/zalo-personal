@@ -11,6 +11,7 @@ export type ZaloPersonalAccountConfig = {
       allow?: boolean;
       enabled?: boolean;
       requireMention?: boolean;
+      allowUsers?: Array<string | number>;
       denyUsers?: Array<string | number>;
       tools?: { allow?: string[]; deny?: string[] };
     }
@@ -33,6 +34,7 @@ export type ZaloPersonalConfig = {
       allow?: boolean;
       enabled?: boolean;
       requireMention?: boolean;
+      allowUsers?: Array<string | number>;
       denyUsers?: Array<string | number>;
       tools?: { allow?: string[]; deny?: string[] };
     }

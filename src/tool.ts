@@ -8,9 +8,12 @@ import {
   removeFromDenyFrom,
   addToGroupDenyUsers,
   removeFromGroupDenyUsers,
+  addToGroupAllowUsers,
+  removeFromGroupAllowUsers,
   listBlockedUsers,
   listAllowedUsers,
   listBlockedUsersInGroup,
+  listAllowedUsersInGroup,
   setGroupRequireMention,
   getGroupRequireMention,
 } from "./config-manager.js";
@@ -49,6 +52,9 @@ const ACTIONS = [
   "unblock-user-in-group",
   "list-blocked",
   "list-allowed",
+  "allow-user-in-group",
+  "unallow-user-in-group",
+  "list-allowed-in-group",
   // Phase 1: Friend & Stranger
   "find-user",
   "send-friend-request",
@@ -755,6 +761,67 @@ export async function executeZaloPersonalTool(
           message: allowed.length > 0
             ? `Allowed users (${allowed.length}): ${allowed.join(", ")}`
             : "No explicit allow list (check dmPolicy setting)",
+        });
+      }
+
+      case "allow-user-in-group": {
+        if (!params.userId) {
+          throw new Error("userId required for allow-user-in-group action");
+        }
+        if (!params.groupId) {
+          throw new Error("groupId required for allow-user-in-group action");
+        }
+        const userId = await resolveUserId(params.userId);
+        const groupId = await resolveGroupId(params.groupId);
+        const config = readOpenClawConfig();
+        const updated = addToGroupAllowUsers(config, groupId, userId);
+        writeOpenClawConfig(updated);
+        return json({
+          success: true,
+          action: "allowed_in_group",
+          userId,
+          groupId,
+          message: `User ${params.userId} (ID: ${userId}) added to allowUsers in group ${params.groupId} (ID: ${groupId}). Only users in allowUsers list will be processed.`,
+          note: "Restart gateway for changes to take effect: openclaw gateway restart",
+        });
+      }
+
+      case "unallow-user-in-group": {
+        if (!params.userId) {
+          throw new Error("userId required for unallow-user-in-group action");
+        }
+        if (!params.groupId) {
+          throw new Error("groupId required for unallow-user-in-group action");
+        }
+        const userId = await resolveUserId(params.userId);
+        const groupId = await resolveGroupId(params.groupId);
+        const config = readOpenClawConfig();
+        const updated = removeFromGroupAllowUsers(config, groupId, userId);
+        writeOpenClawConfig(updated);
+        return json({
+          success: true,
+          action: "unallowed_in_group",
+          userId,
+          groupId,
+          message: `User ${params.userId} (ID: ${userId}) removed from allowUsers in group ${params.groupId} (ID: ${groupId})`,
+          note: "Restart gateway for changes to take effect: openclaw gateway restart",
+        });
+      }
+
+      case "list-allowed-in-group": {
+        if (!params.groupId) {
+          throw new Error("groupId required for list-allowed-in-group action");
+        }
+        const groupId = await resolveGroupId(params.groupId);
+        const config = readOpenClawConfig();
+        const allowed = listAllowedUsersInGroup(config, groupId);
+        return json({
+          groupId,
+          allowed,
+          count: allowed.length,
+          message: allowed.length > 0
+            ? `Allowed users in group (${allowed.length}): ${allowed.join(", ")}. Only these users' messages will be processed.`
+            : "No allowUsers configured for this group (all users' messages are processed, subject to denyUsers and @mention rules)",
         });
       }
 

@@ -170,6 +170,68 @@ export function listAllowedUsers(config: OpenClawConfig): Array<string | number>
 }
 
 /**
+ * Add user to group-specific allowUsers list
+ */
+export function addToGroupAllowUsers(
+  config: OpenClawConfig,
+  groupId: string,
+  userId: string,
+): OpenClawConfig {
+  const zpConfig = getZaloPersonalConfig(config);
+  const groups = zpConfig.groups ?? {};
+  const groupConfig = groups[groupId] ?? {};
+  const allowUsers = addToArray(groupConfig.allowUsers, userId);
+
+  return updateZaloPersonalConfig(config, {
+    groups: {
+      ...groups,
+      [groupId]: {
+        ...groupConfig,
+        allowUsers,
+      },
+    },
+  });
+}
+
+/**
+ * Remove user from group-specific allowUsers list
+ */
+export function removeFromGroupAllowUsers(
+  config: OpenClawConfig,
+  groupId: string,
+  userId: string,
+): OpenClawConfig {
+  const zpConfig = getZaloPersonalConfig(config);
+  const groups = zpConfig.groups ?? {};
+  const groupConfig = groups[groupId];
+
+  if (!groupConfig) {
+    return config;
+  }
+
+  const allowUsers = removeFromArray(groupConfig.allowUsers, userId);
+
+  return updateZaloPersonalConfig(config, {
+    groups: {
+      ...groups,
+      [groupId]: {
+        ...groupConfig,
+        allowUsers,
+      },
+    },
+  });
+}
+
+/**
+ * List allowed users in specific group
+ */
+export function listAllowedUsersInGroup(config: OpenClawConfig, groupId: string): Array<string | number> {
+  const zpConfig = getZaloPersonalConfig(config);
+  const groupConfig = zpConfig.groups?.[groupId];
+  return groupConfig?.allowUsers ?? [];
+}
+
+/**
  * List blocked users in specific group
  */
 export function listBlockedUsersInGroup(config: OpenClawConfig, groupId: string): Array<string | number> {

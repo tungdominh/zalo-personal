@@ -195,6 +195,44 @@ function isUserDeniedInGroup(params: {
   return false;
 }
 
+/**
+ * Check if a group has allowUsers configured and whether the sender is in it.
+ * Returns: undefined if no allowUsers configured (no filtering), true if allowed, false if not.
+ */
+function checkGroupAllowUsers(params: {
+  senderId: string;
+  groupId: string;
+  groupName?: string | null;
+  groups: Record<string, { allowUsers?: Array<string | number> }>;
+}): boolean | undefined {
+  const groups = params.groups ?? {};
+  const candidates = [
+    params.groupId,
+    `group:${params.groupId}`,
+    params.groupName ?? "",
+    normalizeGroupSlug(params.groupName ?? ""),
+  ].filter(Boolean);
+
+  // Check specific group config first
+  for (const candidate of candidates) {
+    const groupConfig = groups[candidate];
+    if (groupConfig?.allowUsers && groupConfig.allowUsers.length > 0) {
+      const allowUsers = groupConfig.allowUsers.map((v) => String(v));
+      return isSenderAllowed(params.senderId, allowUsers);
+    }
+  }
+
+  // Check wildcard
+  const wildcard = groups["*"];
+  if (wildcard?.allowUsers && wildcard.allowUsers.length > 0) {
+    const allowUsers = wildcard.allowUsers.map((v) => String(v));
+    return isSenderAllowed(params.senderId, allowUsers);
+  }
+
+  // No allowUsers configured = no filtering
+  return undefined;
+}
+
 function normalizeGroupSlug(raw?: string | null): string {
   const trimmed = raw?.trim().toLowerCase() ?? "";
   if (!trimmed) {
@@ -344,7 +382,7 @@ async function processMessage(
   const groupPolicy = account.config.groupPolicy ?? defaultGroupPolicy ?? "open";
   const groups = account.config.groups ?? {};
   if (isGroup) {
-    // NEW: Check if user is denied within this specific group
+    // Check if user is denied within this specific group
     if (isUserDeniedInGroup({ senderId, groupId: chatId, groups })) {
       logVerbose(
         core,
@@ -354,7 +392,18 @@ async function processMessage(
       return;
     }
 
-    // EXISTING: Group policy checks continue unchanged
+    // Check if group has allowUsers — only process messages from allowed users
+    const userAllowed = checkGroupAllowUsers({ senderId, groupId: chatId, groups });
+    if (userAllowed === false) {
+      logVerbose(
+        core,
+        runtime,
+        `Blocked sender ${senderId} (${senderName || "unknown"}) not in group ${chatId} allowUsers`,
+      );
+      return;
+    }
+
+    // Group policy checks
     if (groupPolicy === "disabled") {
       logVerbose(core, runtime, `'zalo-personal': drop group ${chatId} (groupPolicy=disabled)`);
       return;
