@@ -16,6 +16,24 @@ import {
 } from "./config-manager.js";
 import { getPendingRequests, removePendingRequest } from "./friend-request-store.js";
 
+/**
+ * Extract member IDs from group info, using memVerList as fallback
+ * when memberIds is empty (Zalo API change: memberIds often returns []
+ * but memVerList contains "{userId}_{version}" entries).
+ */
+function extractMemberIds(info: any): string[] {
+  const memberIds: string[] = info.memberIds ?? [];
+  if (memberIds.length > 0) return memberIds;
+
+  // Fallback: parse memVerList entries like "1234567890_0" → "1234567890"
+  const memVerList: string[] = info.memVerList ?? [];
+  if (memVerList.length > 0) {
+    return memVerList.map((entry: string) => entry.split("_")[0]).filter(Boolean);
+  }
+
+  return [];
+}
+
 const ACTIONS = [
   "send",
   "send-styled",
@@ -1014,7 +1032,7 @@ export async function executeZaloPersonalTool(
             maxMember: info.maxMember,
             creatorId: info.creatorId,
             adminIds: info.adminIds,
-            memberIds: info.memberIds,
+            memberIds: extractMemberIds(info),
             avatar: info.avt,
             createdTime: info.createdTime,
           },

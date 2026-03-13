@@ -387,7 +387,12 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
       // First get the group info to get member IDs
       const infoResp = await api.getGroupInfo(groupId);
       const groupInfo = infoResp?.gridInfoMap?.[groupId];
-      const memberIds = groupInfo?.memberIds ?? [];
+      // Use memVerList as fallback when memberIds is empty (Zalo API change)
+      let memberIds: string[] = groupInfo?.memberIds ?? [];
+      if (memberIds.length === 0) {
+        const memVerList: string[] = (groupInfo as any)?.memVerList ?? [];
+        memberIds = memVerList.map((entry: string) => entry.split("_")[0]).filter(Boolean);
+      }
       if (memberIds.length === 0) {
         return [];
       }
