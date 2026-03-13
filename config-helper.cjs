@@ -38,6 +38,17 @@ try {
     delete config.channels['zalo-personal'].allowFrom;
   }
 
+  // Ensure plugins.allow includes zalo-personal to avoid warning
+  if (!config.plugins) {
+    config.plugins = {};
+  }
+  if (!Array.isArray(config.plugins.allow)) {
+    config.plugins.allow = [];
+  }
+  if (!config.plugins.allow.includes('zalo-personal')) {
+    config.plugins.allow.push('zalo-personal');
+  }
+
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   console.log(`✅ Configured ${mode} mode successfully`);
 } catch (error) {

@@ -55,6 +55,13 @@ if [ -f "$CONFIG_FILE" ] && [ ! -d "$EXT_DIR_CHECK/node_modules" ]; then
             delete config.plugins.installs['zalo-personal'];
             cleaned = true;
           }
+          if (config.plugins && Array.isArray(config.plugins.allow)) {
+            const idx = config.plugins.allow.indexOf('zalo-personal');
+            if (idx !== -1) {
+              config.plugins.allow.splice(idx, 1);
+              cleaned = true;
+            }
+          }
           if (config.channels && config.channels['zalo-personal']) {
             delete config.channels['zalo-personal'];
             cleaned = true;
@@ -149,6 +156,16 @@ if [ -d "$HOME/.openclaw/extensions/zalo-personal" ]; then
                       if (config.plugins && config.plugins.entries && config.plugins.entries['zalo-personal']) {
                         delete config.plugins.entries['zalo-personal'];
                         console.log('   ✓ Removed plugins.entries.zalo-personal');
+                      }
+
+                      if (config.plugins && config.plugins.installs && config.plugins.installs['zalo-personal']) {
+                        delete config.plugins.installs['zalo-personal'];
+                        console.log('   ✓ Removed plugins.installs.zalo-personal');
+                      }
+
+                      if (config.plugins && Array.isArray(config.plugins.allow)) {
+                        config.plugins.allow = config.plugins.allow.filter(id => id !== 'zalo-personal');
+                        console.log('   ✓ Removed zalo-personal from plugins.allow');
                       }
 
                       fs.writeFileSync(path, JSON.stringify(config, null, 2));
