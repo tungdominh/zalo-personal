@@ -1102,6 +1102,8 @@ export async function monitorZaloPersonalProvider(
     resolveRunning?.();
   };
 
+  let listenersRegistered = false;
+
   const startListener = async () => {
     if (stopped || abortSignal.aborted) {
       resolveRunning?.();
@@ -1114,7 +1116,13 @@ export async function monitorZaloPersonalProvider(
       const api = await getApi();
       const selfUid = getCurrentUid();
 
-      // Register event handlers only once before starting
+      // Register event handlers only once to avoid duplicate processing
+      if (listenersRegistered) {
+        api.listener.start({ retryOnClose: true });
+        return;
+      }
+      listenersRegistered = true;
+
       api.listener.on("message", (msg: Message) => {
         // Skip self messages
         if (msg.isSelf) {
@@ -1207,7 +1215,13 @@ export async function monitorZaloPersonalProvider(
         runtime.log?.(`[${account.accountId}] keepAlive disabled (no server-provided duration)`);
       }
     } catch (err) {
-      runtime.error(`[${account.accountId}] zca-js listener start failed: ${String(err)}`);
+      const errMsg = String(err);
+      // If listener is already running, no need to retry — it's working fine
+      if (errMsg.includes("Already started")) {
+        runtime.log?.(`[${account.accountId}] listener already running, skipping retry`);
+        return;
+      }
+      runtime.error(`[${account.accountId}] zca-js listener start failed: ${errMsg}`);
       if (!stopped && !abortSignal.aborted) {
         logVerbose(core, runtime, `[${account.accountId}] retrying listener in 10s...`);
         restartTimer = setTimeout(startListener, 10000);
