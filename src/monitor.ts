@@ -1167,6 +1167,8 @@ export async function monitorZaloPersonalProvider(
 
       // Register event handlers only once to avoid duplicate processing
       if (listenersRegistered) {
+        // Stop existing listener first to avoid "Already started" error
+        try { api.listener.stop(); } catch (_) { /* ignore if not running */ }
         api.listener.start({ retryOnClose: true });
         return;
       }
