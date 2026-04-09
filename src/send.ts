@@ -1,5 +1,6 @@
-import { ThreadType, TextStyle, type Style, type MessageContent } from "zca-js";
+import { ThreadType, TextStyle, type Style, type MessageContent, type Mention } from "zca-js";
 import { getApi } from "./zalo-client.js";
+import { resolveOutboundMentions } from "./mention-parser.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -49,6 +50,18 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
   }
 
   return { text, styles };
+}
+
+/** Binary search count of how many entries in `sorted` are strictly less than `value`. */
+function countStripsBefore(sorted: number[], value: number): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 export type ZaloPersonalSendOptions = {
@@ -102,10 +115,32 @@ export async function sendMessageZaloPersonal(
     const api = await getApi();
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const truncated = text.slice(0, 2000);
-    const { text: plainText, styles } = markdownToZaloStyles(truncated);
-    const content: { msg: string; styles?: Style[] } = { msg: plainText };
-    if (styles.length > 0) {
-      content.styles = styles;
+    const { text: postMarkdownText, styles } = markdownToZaloStyles(truncated);
+    // Resolve @[Name]/@Name → Zalo Mention[] AFTER markdown styling. Mention
+    // parsing strips `[`/`]`, which can shift any style span that started
+    // after a stripped position; we walk styles once and shift each by the
+    // count of strip indices below its start so style highlighting stays
+    // aligned with the final outbound text.
+    let outboundText = postMarkdownText;
+    let mentions: Mention[] = [];
+    let alignedStyles = styles;
+    if (options.isGroup) {
+      const resolved = await resolveOutboundMentions(threadId.trim(), postMarkdownText);
+      outboundText = resolved.text;
+      mentions = resolved.mentions;
+      if (resolved.stripIndices.length > 0 && styles.length > 0) {
+        alignedStyles = styles.map((s) => {
+          const shift = countStripsBefore(resolved.stripIndices, s.start);
+          return shift === 0 ? s : { ...s, start: s.start - shift };
+        });
+      }
+    }
+    const content: { msg: string; styles?: Style[]; mentions?: Mention[] } = { msg: outboundText };
+    if (alignedStyles.length > 0) {
+      content.styles = alignedStyles;
+    }
+    if (mentions.length > 0) {
+      content.mentions = mentions;
     }
     const result = await api.sendMessage(
       content,
