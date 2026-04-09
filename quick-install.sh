@@ -204,8 +204,6 @@ fi
 # Install plugin (if not using existing)
 if [ "$ALREADY_INSTALLED" = false ] || [ "$choice" = "2" ]; then
     echo "📦 Đang cài đặt extension zalo-personal..."
-    echo "⚠️  Có thể xuất hiện warning về 'dangerous code patterns' - điều này bình thường"
-    echo "    (Extension cần quyền restart gateway)"
     echo ""
     echo "─────────────────────────────────────────────────────────────"
     echo "📥 Installing plugin and dependencies..."
