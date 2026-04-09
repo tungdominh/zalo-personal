@@ -36,7 +36,6 @@ import { LoginQRCallbackEventType } from "zca-js";
 import { displayQRFromPNG } from "./qr-display.js";
 import * as fs from "fs";
 import * as readline from "readline";
-import { spawn } from "child_process";
 
 const meta = {
   id: "zalo-personal",
@@ -550,14 +549,9 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
         const shouldRestart = !answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes";
 
         if (shouldRestart) {
-          runtime.log("Restarting gateway...");
-          // Execute openclaw gateway restart command
-          spawn("openclaw", ["gateway", "restart"], {
-            detached: true,
-            stdio: "ignore",
-          }).unref();
+          runtime.log("To apply the new certificate, run: openclaw gateway restart");
         } else {
-          runtime.log("Skipped restart. Remember to restart gateway later for certificate to be recognized.");
+          runtime.log("Skipped restart. Remember to run 'openclaw gateway restart' later for certificate to be recognized.");
         }
       } catch (err) {
         // Clean up QR file even on failure

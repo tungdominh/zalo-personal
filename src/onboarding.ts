@@ -12,7 +12,6 @@ import {
   promptChannelAccessConfig,
 } from "openclaw/plugin-sdk";
 import * as fs from "fs";
-import { spawn } from "child_process";
 import {
   listZaloPersonalAccountIds,
   resolveDefaultZaloPersonalAccountId,
@@ -388,12 +387,10 @@ export const zaloPersonalOnboardingAdapter: ChannelOnboardingAdapter = {
           });
 
           if (wantsRestart) {
-            await prompter.note("Restarting gateway...", "Gateway");
-            // Execute openclaw gateway restart command
-            spawn("openclaw", ["gateway", "restart"], {
-              detached: true,
-              stdio: "ignore",
-            }).unref();
+            await prompter.note(
+              "To apply the new certificate, run: openclaw gateway restart",
+              "Gateway",
+            );
           }
         } catch (err) {
           await prompter.note(
@@ -453,12 +450,10 @@ export const zaloPersonalOnboardingAdapter: ChannelOnboardingAdapter = {
           });
 
           if (wantsRestart) {
-            await prompter.note("Restarting gateway...", "Gateway");
-            // Execute openclaw gateway restart command
-            spawn("openclaw", ["gateway", "restart"], {
-              detached: true,
-              stdio: "ignore",
-            }).unref();
+            await prompter.note(
+              "To apply the new certificate, run: openclaw gateway restart",
+              "Gateway",
+            );
           }
         } catch {
           // ignore login errors during re-login, but clean up QR file

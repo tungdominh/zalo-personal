@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as os from "os";
 
 /**
  * Download an image from a URL and save it locally
@@ -13,10 +14,7 @@ export async function downloadImageFromUrl(
   workspaceDir?: string,
 ): Promise<string | undefined> {
   try {
-    const targetDir = workspaceDir || path.join(
-      process.env.HOME || "/root",
-      ".openclaw/workspace/media"
-    );
+    const targetDir = workspaceDir || path.join(os.homedir(), ".openclaw/workspace/media");
 
     // Ensure directory exists
     if (!fs.existsSync(targetDir)) {
