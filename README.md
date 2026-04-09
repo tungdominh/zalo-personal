@@ -258,6 +258,41 @@ Bot:  (gọi group-mention action) → Đã tắt requireMention cho group 12345
 
 ---
 
+## Tag Thành Viên Trong Nhóm (@mention)
+
+Bot có thể tag (mention) thành viên trong nhóm Zalo bằng 2 cú pháp. Khi reply, AI chỉ cần viết text như bình thường, plugin tự resolve sang Zalo Mention thật và gửi notification cho người được tag.
+
+| Cú pháp | Khi nào dùng | Ví dụ |
+|---------|--------------|-------|
+| `@Tên` | Tên 1 từ (single word) — đơn giản nhất, AI tự nhiên dùng | `@Linh check giúp anh` |
+| `@[Tên Đầy Đủ]` | Tên có khoảng trắng — explicit, an toàn nhất | `@[Cao Chí Tâm] confirm nhé` |
+
+### An toàn theo thiết kế
+
+Parser tuân thủ 3 quy tắc để **không tag nhầm**:
+
+1. **Tên không khớp duy nhất → bỏ qua.** Nếu nhóm có 2 thành viên cùng tên "Linh", parser bỏ qua cả 2 và để text nguyên — bot không tag bừa.
+2. **Tên không có trong nhóm → bỏ qua.** AI bịa tên cũng không tạo mention rỗng.
+3. **`@` trong email → bỏ qua.** `user@example.com` không bị rewrite.
+
+Nếu API lấy danh sách thành viên fail, message vẫn được gửi đi dạng plain text — outbound delivery không bao giờ break vì mention.
+
+### Train AI dùng cú pháp `@[...]` (chỉ cần khi nhóm có tên dài)
+
+Đa số LLM hiện đại tự nhiên viết `@Tên` cho tên 1 từ — **không cần dạy**. Chỉ khi nhóm bạn có thành viên tên >1 từ ("Cao Chí Tâm", "Nguyễn Văn A"), bạn mới cần thêm 1 dòng vào system prompt của bot:
+
+```
+Khi reply trong nhóm Zalo và muốn tag thành viên có tên nhiều từ, dùng cú pháp @[Tên Đầy Đủ] (vd: @[Cao Chí Tâm]).
+```
+
+Snippet ~25 tokens, bạn dán vào agent prompt. Người không cần thì không dán → không tốn token nào.
+
+### Cache thành viên nhóm
+
+Plugin fetch danh sách thành viên bằng `getGroupInfo` + `getGroupMembersInfo` lần đầu khi bot reply vào nhóm, sau đó cache **5 phút** (LRU 50 nhóm). Reply liên tục vào cùng nhóm không hammer Zalo API.
+
+---
+
 ## Hệ Thống & Độ Tin Cậy
 
 | Tính năng | Mô tả |
