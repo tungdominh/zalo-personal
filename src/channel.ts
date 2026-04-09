@@ -232,6 +232,16 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
     resolveRequireMention: resolveZaloPersonalGroupRequireMention,
     resolveToolPolicy: resolveZaloPersonalGroupToolPolicy,
   },
+  // Inject a tiny outbound-formatting hint into the agent system prompt only
+  // when the active channel is zalo-personal. The hint covers both syntaxes
+  // the mention parser supports, so the LLM can tag group members correctly
+  // without each operator having to add bespoke prompt text. Cost: ~20 tokens
+  // and only on Zalo turns — no impact on Discord/Slack/Telegram replies.
+  agentPrompt: {
+    messageToolHints: () => [
+      "- Zalo group mentions: tag a member by writing `@Name` (single-word name) or `@[Full Name]` (with spaces). The plugin auto-resolves the name to a real Zalo @mention and sends a notification. Unknown or ambiguous names are left as plain text — never invent a name that is not in the group.",
+    ],
+  },
   threading: {
     resolveReplyToMode: () => "off",
   },
