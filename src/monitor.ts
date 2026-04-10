@@ -1,13 +1,8 @@
-import type { OpenClawConfig, MarkdownTableMode, RuntimeEnv } from "openclaw/plugin-sdk";
-import {
-  createReplyPrefixOptions,
-  createTypingCallbacks,
-  logTypingFailure,
-  logAckFailure,
-  mergeAllowlist,
-  summarizeMapping,
-  resolveMentionGatingWithBypass,
-} from "openclaw/plugin-sdk";
+import type { OpenClawConfig, MarkdownTableMode, RuntimeEnv } from "openclaw/plugin-sdk/channel-plugin-common";
+import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
+import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
+import { mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk/allow-from";
+import { resolveMentionGatingWithBypass } from "openclaw/plugin-sdk/channel-inbound";
 import { ThreadType, FriendEventType, Reactions, type API, type Message, type UserMessage, type GroupMessage, type FriendEvent } from "zca-js";
 import type { ResolvedZaloPersonalAccount, ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalMessage } from "./types.js";
 import { getZaloPersonalRuntime } from "./runtime.js";
