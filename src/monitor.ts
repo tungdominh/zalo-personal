@@ -2,7 +2,17 @@ import type { OpenClawConfig, MarkdownTableMode, RuntimeEnv } from "openclaw/plu
 import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
 import { mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk/allow-from";
-import { resolveMentionGatingWithBypass } from "openclaw/plugin-sdk/channel-inbound";
+// Inline mention gating to avoid compat barrel issues with OpenClaw SDK
+function resolveMentionGatingWithBypass(params: {
+  isGroup: boolean; requireMention: boolean; canDetectMention: boolean;
+  wasMentioned: boolean; allowTextCommands: boolean; hasControlCommand: boolean;
+  commandAuthorized: boolean;
+}): { shouldSkip: boolean } {
+  if (!params.isGroup || !params.requireMention) return { shouldSkip: false };
+  if (params.wasMentioned) return { shouldSkip: false };
+  if (params.allowTextCommands && params.hasControlCommand && params.commandAuthorized) return { shouldSkip: false };
+  return { shouldSkip: true };
+}
 import { ThreadType, FriendEventType, Reactions, type API, type Message, type UserMessage, type GroupMessage, type FriendEvent } from "zca-js";
 import type { ResolvedZaloPersonalAccount, ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalMessage } from "./types.js";
 import { getZaloPersonalRuntime } from "./runtime.js";
