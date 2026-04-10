@@ -6,7 +6,7 @@ import type {
   ChannelPlugin,
   OpenClawConfig,
   GroupToolPolicyConfig,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-plugin-common";
 import {
   applyAccountNameToChannelSection,
   buildChannelConfigSchema,
@@ -16,7 +16,7 @@ import {
   migrateBaseNameToDefaultAccount,
   normalizeAccountId,
   setAccountEnabledInConfigSection,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-plugin-common";
 import type { ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalUserInfo } from "./types.js";
 import {
   listZaloPersonalAccountIds,

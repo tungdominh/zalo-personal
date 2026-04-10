@@ -3,14 +3,16 @@ import type {
   ChannelOnboardingDmPolicy,
   OpenClawConfig,
   WizardPrompter,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-plugin-common";
 import {
-  addWildcardAllowFrom,
   DEFAULT_ACCOUNT_ID,
   normalizeAccountId,
+} from "openclaw/plugin-sdk/channel-plugin-common";
+import {
+  addWildcardAllowFrom,
   promptAccountId,
   promptChannelAccessConfig,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/setup";
 import * as fs from "fs";
 import {
   listZaloPersonalAccountIds,
