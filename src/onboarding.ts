@@ -468,7 +468,7 @@ export const zaloPersonalOnboardingAdapter: ChannelOnboardingAdapter = {
       }
     }
 
-    // Enable the channel
+    // Enable the channel and ensure account entry exists
     if (accountId === DEFAULT_ACCOUNT_ID) {
       next = {
         ...next,
@@ -477,6 +477,13 @@ export const zaloPersonalOnboardingAdapter: ChannelOnboardingAdapter = {
           'zalo-personal': {
             ...next.channels?.['zalo-personal'],
             enabled: true,
+            accounts: {
+              ...next.channels?.['zalo-personal']?.accounts,
+              [DEFAULT_ACCOUNT_ID]: {
+                ...next.channels?.['zalo-personal']?.accounts?.[DEFAULT_ACCOUNT_ID],
+                enabled: true,
+              },
+            },
           },
         },
       } as OpenClawConfig;
