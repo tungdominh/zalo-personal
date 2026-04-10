@@ -9,6 +9,7 @@ import { getZaloPersonalRuntime } from "./runtime.js";
 import { sendMessageZaloPersonal } from "./send.js";
 import { getApi, getCurrentUid } from "./zalo-client.js";
 import { downloadImagesFromUrls } from "./image-downloader.js";
+import { getThreadMediaDir } from "./thread-sandbox.js";
 import { addPendingRequest, removePendingRequest } from "./friend-request-store.js";
 import { refreshCredentials } from "./credentials.js";
 
@@ -575,7 +576,8 @@ async function processMessage(
   let localMediaPaths: string[] | undefined;
   if (message.mediaUrls && message.mediaUrls.length > 0) {
     console.log(`[zalo-personal] Downloading ${message.mediaUrls.length} images for native image support...`);
-    const downloadedPaths = await downloadImagesFromUrls(message.mediaUrls);
+    const threadMediaDir = getThreadMediaDir(chatId);
+    const downloadedPaths = await downloadImagesFromUrls(message.mediaUrls, threadMediaDir);
     localMediaPaths = downloadedPaths.filter((p): p is string => p !== undefined);
 
     if (localMediaPaths.length > 0) {

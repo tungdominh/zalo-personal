@@ -1,8 +1,12 @@
 import { ThreadType, TextStyle, type Style, type MessageContent, type Mention } from "zca-js";
 import { getApi } from "./zalo-client.js";
 import { resolveOutboundMentions } from "./mention-parser.js";
+import { redactOutput } from "./output-filter.js";
 import * as fs from "fs";
 import * as path from "path";
+
+const ZALO_MAX_TEXT_LENGTH = 4000;
+const TRUNCATION_SUFFIX = "\n\n[...tin nhắn quá dài, đã cắt bớt]";
 
 /**
  * Convert markdown to Zalo TextStyle.
@@ -114,7 +118,12 @@ export async function sendMessageZaloPersonal(
   try {
     const api = await getApi();
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
-    const truncated = text.slice(0, 2000);
+    // Redact internal info (paths, tool names, tokens) before sending
+    const redacted = redactOutput(text);
+    // Truncate to Zalo's limit with indicator
+    const truncated = redacted.length > ZALO_MAX_TEXT_LENGTH
+      ? redacted.slice(0, ZALO_MAX_TEXT_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX
+      : redacted;
     const { text: postMarkdownText, styles } = markdownToZaloStyles(truncated);
     // Resolve @[Name]/@Name → Zalo Mention[] AFTER markdown styling. Mention
     // parsing strips `[`/`]`, which can shift any style span that started
