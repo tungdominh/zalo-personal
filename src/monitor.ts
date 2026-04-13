@@ -45,9 +45,32 @@ const nameCache = new Map<string, { name: string; cachedAt: number }>();
 const groupNameCache = new Map<string, { name: string; cachedAt: number }>();
 const NAME_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-// No in-memory group buffer needed — non-mention messages are recorded
-// directly to OpenClaw session via recordInboundSession(). OpenClaw
-// manages conversation history, compaction, and context assembly.
+// Group message buffer: non-@mention messages stored for context injection.
+// When bot is @mentioned, recent group messages are prepended to the body
+// so the LLM sees what was discussed before being called.
+const groupMessageBuffer = new Map<string, Array<{
+  senderName: string;
+  content: string;
+  timestamp: number;
+}>>();
+const GROUP_BUFFER_MAX_MESSAGES = 200;
+
+function bufferGroupMessage(groupId: string, entry: {
+  senderName: string; content: string; timestamp: number;
+}): void {
+  let buffer = groupMessageBuffer.get(groupId) ?? [];
+  buffer.push(entry);
+  buffer = buffer.slice(-GROUP_BUFFER_MAX_MESSAGES);
+  groupMessageBuffer.set(groupId, buffer);
+}
+
+function consumeGroupBuffer(groupId: string): string {
+  const buffer = groupMessageBuffer.get(groupId);
+  if (!buffer || buffer.length === 0) return "";
+  const lines = buffer.map(m => `[${m.senderName}]: ${m.content}`);
+  groupMessageBuffer.delete(groupId);
+  return lines.join("\n");
+}
 
 // --- Quote reply: cache last inbound message per thread for reply-to ---
 import type { SendMessageQuote } from "zca-js";
@@ -600,49 +623,19 @@ async function processMessage(
       commandAuthorized: commandAuthorized === true,
     });
 
-    // For non-mentioned messages: record to OpenClaw session (persistent history)
-    // but don't trigger a reply. OpenClaw manages the full conversation history.
     if (mentionGate.shouldSkip) {
+      // Buffer for context injection when bot is @mentioned later
       const resolvedName = senderName || await resolveUserName(senderId);
-      // Download media so files are available if bot needs them later
-      let bufferedMediaPaths: string[] | undefined;
+      bufferGroupMessage(chatId, {
+        senderName: resolvedName,
+        content: rawBody,
+        timestamp: timestamp ?? Math.floor(Date.now() / 1000),
+      });
+      // Download media to sandbox
       if (message.mediaUrls && message.mediaUrls.length > 0) {
         const threadMediaDir = getThreadMediaDir(chatId);
         const downloaded = await downloadImagesFromUrls(message.mediaUrls, threadMediaDir);
-        bufferedMediaPaths = downloaded.filter((p): p is string => p !== undefined);
-        if (bufferedMediaPaths.length > 0) enforceSandboxSizeLimit(chatId);
-      }
-
-      // Record to OpenClaw session — persistent, survives restart
-      try {
-        const skipPeer = { kind: "group" as const, id: chatId };
-        const skipRoute = core.channel.routing.resolveAgentRoute({
-          cfg: config, channel: "zalo-personal", accountId: account.accountId,
-          peer: skipPeer,
-        });
-        const skipStorePath = core.channel.session.resolveStorePath(config.session?.store, { agentId: skipRoute.agentId });
-        const skipBody = `[${resolvedName}]: ${rawBody}${bufferedMediaPaths?.length ? ` [${bufferedMediaPaths.length} file(s)]` : ""}`;
-        const skipCtx = core.channel.reply.finalizeInboundContext({
-          Body: skipBody, RawBody: rawBody, CommandBody: rawBody,
-          From: `'zalo-personal':group:${chatId}`, To: `'zalo-personal':${chatId}`,
-          SessionKey: skipRoute.sessionKey, AccountId: skipRoute.accountId,
-          ChatType: "group", SenderName: resolvedName, SenderId: senderId,
-          Provider: "zalo-personal", Surface: "zalo-personal",
-          MessageSid: message.msgId ?? `${timestamp}`,
-          OriginatingChannel: "zalo-personal", OriginatingTo: `'zalo-personal':${chatId}`,
-          MediaUrls: bufferedMediaPaths ?? message.mediaUrls,
-          MediaUrl: bufferedMediaPaths?.[0] ?? message.mediaUrls?.[0],
-          MediaTypes: message.mediaTypes,
-        });
-        await core.channel.session.recordInboundSession({
-          storePath: skipStorePath,
-          sessionKey: skipCtx.SessionKey ?? skipRoute.sessionKey,
-          ctx: skipCtx,
-          onRecordError: () => {},
-        });
-        logVerbose(core, runtime, `Recorded non-mention message to session: ${chatId} from ${senderId}`);
-      } catch {
-        // Non-critical — if record fails, message is just not in history
+        if (downloaded.some(p => p)) enforceSandboxSizeLimit(chatId);
       }
       return;
     }
@@ -676,13 +669,17 @@ async function processMessage(
     sessionKey: route.sessionKey,
   });
 
-  // No buffer inject needed — non-mention messages are recorded to OpenClaw session directly
+  // Inject buffered group context when bot is mentioned
+  const bufferedContext = isGroup ? consumeGroupBuffer(chatId) : "";
 
   // Prepend sender context for group messages so the AI knows who sent what
   let bodyWithSender = isGroup
     ? `[userId: ${senderId}, name: ${resolvedSenderName}]: ${rawBody}`
     : rawBody;
 
+  if (bufferedContext) {
+    bodyWithSender = `[Recent group chat (context only, not addressed to you):\n${bufferedContext}\n]\n\n${bodyWithSender}`;
+  }
 
   // Auto-fetch user info for @mentioned users (enrich context)
   if (isGroup && message.mentions && message.mentions.length > 0) {
