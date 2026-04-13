@@ -20,7 +20,19 @@ import * as path from "path";
 import * as os from "os";
 
 const WORKSPACE_BASE = path.join(os.homedir(), ".openclaw", "workspace", "threads");
-const DEFAULT_MAX_SIZE_MB = 50; // per thread
+const DEFAULT_MAX_SIZE_MB = 200; // per thread, configurable via OPENCLAW_SANDBOX_MAX_MB env
+
+/**
+ * Get configured max sandbox size from environment or default.
+ */
+function getMaxSizeMB(): number {
+  const envVal = process.env.OPENCLAW_SANDBOX_MAX_MB;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_MAX_SIZE_MB;
+}
 
 /**
  * Get the sandbox directory for a thread. Creates if not exists.
@@ -63,7 +75,7 @@ export function validateSandboxPath(threadId: string, filePath: string): boolean
  * Enforce sandbox size limit. Deletes oldest files first when over limit.
  * Returns number of files deleted.
  */
-export function enforceSandboxSizeLimit(threadId: string, maxSizeMB: number = DEFAULT_MAX_SIZE_MB): number {
+export function enforceSandboxSizeLimit(threadId: string, maxSizeMB: number = getMaxSizeMB()): number {
   const sandbox = getThreadSandbox(threadId);
   const maxBytes = maxSizeMB * 1024 * 1024;
 

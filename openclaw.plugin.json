@@ -4,6 +4,11 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "sandboxMaxSizeMB": {
+        "type": "number",
+        "description": "Max sandbox size per thread in MB. Default: 200"
+      }
+    }
   }
 }

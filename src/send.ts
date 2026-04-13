@@ -1,4 +1,4 @@
-import { ThreadType, TextStyle, type Style, type MessageContent, type Mention } from "zca-js";
+import { ThreadType, TextStyle, type Style, type MessageContent, type Mention, type SendMessageQuote } from "zca-js";
 import { getApi } from "./zalo-client.js";
 import { resolveOutboundMentions } from "./mention-parser.js";
 import { redactOutput } from "./output-filter.js";
@@ -74,6 +74,7 @@ export type ZaloPersonalSendOptions = {
   isGroup?: boolean;
   localPath?: string;  // Local file path to upload
   cleanupAfterUpload?: boolean;  // Delete local file after upload
+  quote?: SendMessageQuote;  // Quote/reply to a specific message
 };
 
 export type ZaloPersonalSendResult = {
@@ -144,12 +145,15 @@ export async function sendMessageZaloPersonal(
         });
       }
     }
-    const content: { msg: string; styles?: Style[]; mentions?: Mention[] } = { msg: outboundText };
+    const content: { msg: string; styles?: Style[]; mentions?: Mention[]; quote?: SendMessageQuote } = { msg: outboundText };
     if (alignedStyles.length > 0) {
       content.styles = alignedStyles;
     }
     if (mentions.length > 0) {
       content.mentions = mentions;
+    }
+    if (options.quote) {
+      content.quote = options.quote;
     }
     const result = await api.sendMessage(
       content,
