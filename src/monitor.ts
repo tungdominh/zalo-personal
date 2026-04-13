@@ -45,41 +45,9 @@ const nameCache = new Map<string, { name: string; cachedAt: number }>();
 const groupNameCache = new Map<string, { name: string; cachedAt: number }>();
 const NAME_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-// --- Group message buffer: stores non-mentioned messages for context ---
-const groupMessageBuffer = new Map<string, Array<{
-  senderName: string;
-  content: string;
-  timestamp: number;
-  localMediaPaths?: string[];
-}>>();
-const GROUP_BUFFER_MAX_MESSAGES = 50;
-// No TTL — buffer only limited by message count. OpenClaw manages conversation history.
-
-function bufferGroupMessage(groupId: string, entry: {
-  senderName: string; content: string; timestamp: number; localMediaPaths?: string[];
-}): void {
-  let buffer = groupMessageBuffer.get(groupId) ?? [];
-  buffer.push(entry);
-  // Keep only last N messages — no time-based expiry
-  buffer = buffer.slice(-GROUP_BUFFER_MAX_MESSAGES);
-  groupMessageBuffer.set(groupId, buffer);
-}
-
-function consumeGroupBuffer(groupId: string): { text: string; mediaPaths: string[] } {
-  const buffer = groupMessageBuffer.get(groupId);
-  if (!buffer || buffer.length === 0) return { text: "", mediaPaths: [] };
-  const allMediaPaths: string[] = [];
-  const lines = buffer.map(m => {
-    let line = `[${m.senderName}]: ${m.content}`;
-    if (m.localMediaPaths && m.localMediaPaths.length > 0) {
-      m.localMediaPaths.forEach(p => allMediaPaths.push(p));
-      line += ` [attached ${m.localMediaPaths.length} image(s)]`;
-    }
-    return line;
-  });
-  groupMessageBuffer.delete(groupId);
-  return { text: lines.join("\n"), mediaPaths: allMediaPaths };
-}
+// No in-memory group buffer needed — non-mention messages are recorded
+// directly to OpenClaw session via recordInboundSession(). OpenClaw
+// manages conversation history, compaction, and context assembly.
 
 // --- Quote reply: cache last inbound message per thread for reply-to ---
 import type { SendMessageQuote } from "zca-js";
@@ -632,26 +600,50 @@ async function processMessage(
       commandAuthorized: commandAuthorized === true,
     });
 
+    // For non-mentioned messages: record to OpenClaw session (persistent history)
+    // but don't trigger a reply. OpenClaw manages the full conversation history.
     if (mentionGate.shouldSkip) {
-      // Buffer message for context (no AI tokens spent)
       const resolvedName = senderName || await resolveUserName(senderId);
-      // Download media for buffered messages so they're available when bot is @mentioned later
+      // Download media so files are available if bot needs them later
       let bufferedMediaPaths: string[] | undefined;
       if (message.mediaUrls && message.mediaUrls.length > 0) {
         const threadMediaDir = getThreadMediaDir(chatId);
         const downloaded = await downloadImagesFromUrls(message.mediaUrls, threadMediaDir);
         bufferedMediaPaths = downloaded.filter((p): p is string => p !== undefined);
-        if (bufferedMediaPaths.length > 0) {
-          enforceSandboxSizeLimit(chatId);
-        }
+        if (bufferedMediaPaths.length > 0) enforceSandboxSizeLimit(chatId);
       }
-      bufferGroupMessage(chatId, {
-        senderName: resolvedName,
-        content: rawBody,
-        timestamp: timestamp ?? Math.floor(Date.now() / 1000),
-        localMediaPaths: bufferedMediaPaths,
-      });
-      logVerbose(core, runtime, `Buffered non-mention message in group ${chatId} from ${senderId}${bufferedMediaPaths?.length ? ` (${bufferedMediaPaths.length} media)` : ""}`);
+
+      // Record to OpenClaw session — persistent, survives restart
+      try {
+        const skipPeer = { kind: "group" as const, id: chatId };
+        const skipRoute = core.channel.routing.resolveAgentRoute({
+          cfg: config, channel: "zalo-personal", accountId: account.accountId,
+          peer: skipPeer,
+        });
+        const skipStorePath = core.channel.session.resolveStorePath(config.session?.store, { agentId: skipRoute.agentId });
+        const skipBody = `[${resolvedName}]: ${rawBody}${bufferedMediaPaths?.length ? ` [${bufferedMediaPaths.length} file(s)]` : ""}`;
+        const skipCtx = core.channel.reply.finalizeInboundContext({
+          Body: skipBody, RawBody: rawBody, CommandBody: rawBody,
+          From: `'zalo-personal':group:${chatId}`, To: `'zalo-personal':${chatId}`,
+          SessionKey: skipRoute.sessionKey, AccountId: skipRoute.accountId,
+          ChatType: "group", SenderName: resolvedName, SenderId: senderId,
+          Provider: "zalo-personal", Surface: "zalo-personal",
+          MessageSid: message.msgId ?? `${timestamp}`,
+          OriginatingChannel: "zalo-personal", OriginatingTo: `'zalo-personal':${chatId}`,
+          MediaUrls: bufferedMediaPaths ?? message.mediaUrls,
+          MediaUrl: bufferedMediaPaths?.[0] ?? message.mediaUrls?.[0],
+          MediaTypes: message.mediaTypes,
+        });
+        await core.channel.session.recordInboundSession({
+          storePath: skipStorePath,
+          sessionKey: skipCtx.SessionKey ?? skipRoute.sessionKey,
+          ctx: skipCtx,
+          onRecordError: () => {},
+        });
+        logVerbose(core, runtime, `Recorded non-mention message to session: ${chatId} from ${senderId}`);
+      } catch {
+        // Non-critical — if record fails, message is just not in history
+      }
       return;
     }
   }
@@ -684,17 +676,13 @@ async function processMessage(
     sessionKey: route.sessionKey,
   });
 
-  // Inject buffered group context when bot is mentioned
-  const bufferedResult = isGroup ? consumeGroupBuffer(chatId) : { text: "", mediaPaths: [] };
+  // No buffer inject needed — non-mention messages are recorded to OpenClaw session directly
 
   // Prepend sender context for group messages so the AI knows who sent what
   let bodyWithSender = isGroup
     ? `[userId: ${senderId}, name: ${resolvedSenderName}]: ${rawBody}`
     : rawBody;
 
-  if (bufferedResult.text) {
-    bodyWithSender = `[Recent group chat (context only, not addressed to you):\n${bufferedResult.text}\n]\n\n${bodyWithSender}`;
-  }
 
   // Auto-fetch user info for @mentioned users (enrich context)
   if (isGroup && message.mentions && message.mentions.length > 0) {
@@ -743,15 +731,7 @@ async function processMessage(
     }
   }
 
-  // Merge current + buffered media paths
-  const allMediaPaths = [
-    ...(localMediaPaths ?? []),
-    ...bufferedResult.mediaPaths,
-  ];
-  if (bufferedResult.mediaPaths.length > 0) {
-    console.log(`[zalo-personal] Injecting ${bufferedResult.mediaPaths.length} buffered image(s) from group context`);
-  }
-  const effectiveMediaPaths = allMediaPaths.length > 0 ? allMediaPaths : undefined;
+  const effectiveMediaPaths = localMediaPaths && localMediaPaths.length > 0 ? localMediaPaths : undefined;
 
   // Append media to body - use LOCAL paths if downloaded, otherwise URLs
   let bodyForEnvelope = bodyWithSender;
