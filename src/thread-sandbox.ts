@@ -10,7 +10,9 @@
  *         ~/.openclaw/workspace/threads/{threadId}/media/
  *         ~/.openclaw/workspace/threads/{threadId}/files/
  *
- * Path traversal is blocked — all paths must resolve within the sandbox.
+ * Cleanup: size-based, not time-based.
+ * When a sandbox exceeds maxSizeMB, oldest files are deleted first.
+ * Files are never deleted just because they're old — only when space is needed.
  */
 
 import * as fs from "fs";
@@ -18,6 +20,7 @@ import * as path from "path";
 import * as os from "os";
 
 const WORKSPACE_BASE = path.join(os.homedir(), ".openclaw", "workspace", "threads");
+const DEFAULT_MAX_SIZE_MB = 50; // per thread
 
 /**
  * Get the sandbox directory for a thread. Creates if not exists.
@@ -49,7 +52,6 @@ export function getThreadFilesDir(threadId: string): string {
 
 /**
  * Validate that a path is within the thread's sandbox.
- * Prevents path traversal attacks.
  */
 export function validateSandboxPath(threadId: string, filePath: string): boolean {
   const sandbox = getThreadSandbox(threadId);
@@ -58,37 +60,98 @@ export function validateSandboxPath(threadId: string, filePath: string): boolean
 }
 
 /**
+ * Enforce sandbox size limit. Deletes oldest files first when over limit.
+ * Returns number of files deleted.
+ */
+export function enforceSandboxSizeLimit(threadId: string, maxSizeMB: number = DEFAULT_MAX_SIZE_MB): number {
+  const sandbox = getThreadSandbox(threadId);
+  const maxBytes = maxSizeMB * 1024 * 1024;
+
+  // Collect all files recursively with stats
+  const files = listFilesRecursive(sandbox);
+  if (files.length === 0) return 0;
+
+  // Calculate total size
+  let totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  if (totalSize <= maxBytes) return 0;
+
+  // Sort oldest first (by mtime)
+  files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  // Delete oldest files until under limit
+  let deleted = 0;
+  for (const file of files) {
+    if (totalSize <= maxBytes) break;
+    try {
+      fs.unlinkSync(file.path);
+      totalSize -= file.size;
+      deleted++;
+    } catch {
+      // Skip files that can't be deleted
+    }
+  }
+
+  // Clean up empty directories
+  cleanEmptyDirs(sandbox);
+
+  return deleted;
+}
+
+/**
+ * Get current sandbox size in bytes.
+ */
+export function getSandboxSize(threadId: string): number {
+  const sandbox = getThreadSandbox(threadId);
+  const files = listFilesRecursive(sandbox);
+  return files.reduce((sum, f) => sum + f.size, 0);
+}
+
+/**
  * Sanitize thread ID for use as directory name.
- * Removes path separators and special characters.
  */
 function sanitizeThreadId(threadId: string): string {
   return threadId.replace(/[/\\:*?"<>|.\s]/g, "_").slice(0, 100);
 }
 
 /**
- * Cleanup old thread sandboxes. Removes directories older than maxAgeDays.
+ * List all files recursively in a directory.
  */
-export function cleanupOldSandboxes(maxAgeDays: number = 30): number {
-  let cleaned = 0;
+function listFilesRecursive(dir: string): Array<{ path: string; size: number; mtimeMs: number }> {
+  const results: Array<{ path: string; size: number; mtimeMs: number }> = [];
   try {
-    if (!fs.existsSync(WORKSPACE_BASE)) return 0;
-    const now = Date.now();
-    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-
-    for (const entry of fs.readdirSync(WORKSPACE_BASE)) {
-      const dirPath = path.join(WORKSPACE_BASE, entry);
-      try {
-        const stat = fs.statSync(dirPath);
-        if (stat.isDirectory() && now - stat.mtimeMs > maxAgeMs) {
-          fs.rmSync(dirPath, { recursive: true, force: true });
-          cleaned++;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...listFilesRecursive(fullPath));
+      } else if (entry.isFile()) {
+        try {
+          const stat = fs.statSync(fullPath);
+          results.push({ path: fullPath, size: stat.size, mtimeMs: stat.mtimeMs });
+        } catch {
+          // Skip inaccessible files
         }
-      } catch {
-        // Skip inaccessible directories
       }
     }
   } catch {
-    // Skip if base dir doesn't exist
+    // Skip inaccessible directories
   }
-  return cleaned;
+  return results;
+}
+
+/**
+ * Remove empty directories (leaf-first).
+ */
+function cleanEmptyDirs(dir: string): void {
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const subdir = path.join(dir, entry.name);
+        cleanEmptyDirs(subdir);
+        try {
+          const contents = fs.readdirSync(subdir);
+          if (contents.length === 0) fs.rmdirSync(subdir);
+        } catch {}
+      }
+    }
+  } catch {}
 }

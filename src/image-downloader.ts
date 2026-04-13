@@ -4,7 +4,7 @@ import * as crypto from "crypto";
 import * as os from "os";
 
 /**
- * Download an image from a URL and save it locally
+ * Download an image from a URL and save it locally.
  * @param url - Image URL to download
  * @param workspaceDir - Directory to save the image (default: ~/.openclaw/workspace/media)
  * @returns Local file path if successful, undefined if failed
@@ -16,19 +16,17 @@ export async function downloadImageFromUrl(
   try {
     const targetDir = workspaceDir || path.join(os.homedir(), ".openclaw/workspace/media");
 
-    // Ensure directory exists
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // Generate filename from URL hash + timestamp
+    // Generate filename with timezone-aware local time
     const urlHash = crypto.createHash("md5").update(url).digest("hex").substring(0, 8);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19);
+    const timestamp = formatLocalTimestamp();
     const ext = getExtensionFromUrl(url) || "jpg";
     const filename = `${timestamp}-zalo-${urlHash}.${ext}`;
     const filePath = path.join(targetDir, filename);
 
-    // Download the image
     const response = await fetch(url);
     if (!response.ok) {
       console.error(`[image-downloader] Failed to fetch ${url}: ${response.status}`);
@@ -47,10 +45,7 @@ export async function downloadImageFromUrl(
 }
 
 /**
- * Download multiple images from URLs
- * @param urls - Array of image URLs
- * @param workspaceDir - Directory to save images
- * @returns Array of local file paths (undefined for failed downloads)
+ * Download multiple images from URLs.
  */
 export async function downloadImagesFromUrls(
   urls: string[],
@@ -61,7 +56,17 @@ export async function downloadImagesFromUrls(
 }
 
 /**
- * Extract file extension from URL
+ * Format timestamp using local timezone (from TZ env or system default).
+ * Output: 2026-04-13T12-30-45 (local time, not UTC)
+ */
+function formatLocalTimestamp(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+}
+
+/**
+ * Extract file extension from URL.
  */
 function getExtensionFromUrl(url: string): string | undefined {
   try {

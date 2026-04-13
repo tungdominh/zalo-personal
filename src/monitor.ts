@@ -19,7 +19,7 @@ import { getZaloPersonalRuntime } from "./runtime.js";
 import { sendMessageZaloPersonal } from "./send.js";
 import { getApi, getCurrentUid } from "./zalo-client.js";
 import { downloadImagesFromUrls } from "./image-downloader.js";
-import { getThreadMediaDir } from "./thread-sandbox.js";
+import { getThreadMediaDir, enforceSandboxSizeLimit } from "./thread-sandbox.js";
 import { addPendingRequest, removePendingRequest } from "./friend-request-store.js";
 import { refreshCredentials } from "./credentials.js";
 
@@ -592,6 +592,9 @@ async function processMessage(
 
     if (localMediaPaths.length > 0) {
       console.log(`[zalo-personal] Downloaded ${localMediaPaths.length} images:`, localMediaPaths);
+      // Enforce sandbox size limit — delete oldest files if over 50MB per thread
+      const deleted = enforceSandboxSizeLimit(chatId);
+      if (deleted > 0) console.log(`[zalo-personal] Sandbox cleanup: deleted ${deleted} old file(s) for thread ${chatId}`);
     } else {
       console.warn(`[zalo-personal] Failed to download any images from:`, message.mediaUrls);
     }
