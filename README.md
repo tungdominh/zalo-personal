@@ -434,6 +434,19 @@ Mọi đóng góp dù nhỏ đều giúp:
 
 ---
 
+## Contributors
+
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/caochitam"><img src="https://github.com/caochitam.png" width="80" /><br /><sub><b>Cao Chí Tâm</b></sub></a><br />💻 🏗️ 📖</td>
+    <td align="center"><a href="https://github.com/monasprox"><img src="https://github.com/monasprox.png" width="80" /><br /><sub><b>Hoàng Tuấn</b></sub></a><br />💻 ✨</td>
+  </tr>
+</table>
+
+Contributions welcome! Fork → Branch → PR. Xem [Contributing Guide](CONTRIBUTING.md) nếu có.
+
+---
+
 ## License
 
 MIT License — xem [LICENSE](LICENSE)
@@ -441,7 +454,7 @@ MIT License — xem [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  <strong>Made with care by caochitam</strong> | <em>Powered by OpenClaw + zca-js + Claude Code</em><br/><br/>
+  <strong>Made with care by caochitam & contributors</strong> | <em>Powered by OpenClaw + zca-js + Claude Code</em><br/><br/>
   <a href="#-ủng-hộ-dự-án"><img src="https://raw.githubusercontent.com/caochitam/zalo-personal/main/momo-caochitam.jpg" alt="Ủng hộ" width="160" /></a><br/>
   <sub>Thích dự án này? Quét mã QR để ủng hộ tác giả duy trì và phát triển tiếp!</sub>
 </p>
