@@ -53,15 +53,15 @@ const groupMessageBuffer = new Map<string, Array<{
   localMediaPaths?: string[];
 }>>();
 const GROUP_BUFFER_MAX_MESSAGES = 50;
-const GROUP_BUFFER_MAX_AGE_S = 4 * 60 * 60; // 4 hours
+// No TTL — buffer only limited by message count. OpenClaw manages conversation history.
 
 function bufferGroupMessage(groupId: string, entry: {
   senderName: string; content: string; timestamp: number; localMediaPaths?: string[];
 }): void {
   let buffer = groupMessageBuffer.get(groupId) ?? [];
   buffer.push(entry);
-  const cutoff = Math.floor(Date.now() / 1000) - GROUP_BUFFER_MAX_AGE_S;
-  buffer = buffer.filter(m => m.timestamp > cutoff).slice(-GROUP_BUFFER_MAX_MESSAGES);
+  // Keep only last N messages — no time-based expiry
+  buffer = buffer.slice(-GROUP_BUFFER_MAX_MESSAGES);
   groupMessageBuffer.set(groupId, buffer);
 }
 
@@ -339,16 +339,17 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
   if (typeof data.content === "string") {
     content = data.content;
   } else if (typeof data.content === "object" && data.content !== null) {
-    // Handle attachment (image, video, file, etc.)
+    // Handle attachment (image, video, file, document, etc.)
     const attachment = data.content as any;
 
     // Extract media URL from attachment
     if (attachment.href) {
       mediaUrls.push(attachment.href);
 
-      // Determine media type based on attachment.type or default to image
+      // Determine media type based on attachment metadata
       const attachmentType = attachment.type?.toLowerCase() || "";
-      let mimeType = "application/octet-stream"; // default
+      const fileName = (attachment.title || "").toLowerCase();
+      let mimeType = "application/octet-stream";
 
       if (attachmentType.includes("photo") || attachmentType.includes("image")) {
         mimeType = "image/jpeg";
@@ -356,13 +357,35 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
         mimeType = "video/mp4";
       } else if (attachmentType.includes("audio")) {
         mimeType = "audio/mpeg";
+      } else if (fileName.endsWith(".pdf")) {
+        mimeType = "application/pdf";
+      } else if (fileName.endsWith(".doc") || fileName.endsWith(".docx")) {
+        mimeType = "application/msword";
+      } else if (fileName.endsWith(".xls") || fileName.endsWith(".xlsx")) {
+        mimeType = "application/vnd.ms-excel";
+      } else if (fileName.endsWith(".ppt") || fileName.endsWith(".pptx")) {
+        mimeType = "application/vnd.ms-powerpoint";
+      } else if (fileName.endsWith(".zip") || fileName.endsWith(".rar")) {
+        mimeType = "application/zip";
+      } else if (fileName.endsWith(".txt") || fileName.endsWith(".csv")) {
+        mimeType = "text/plain";
       }
 
       mediaTypes.push(mimeType);
     }
 
-    // Use title or description as content, or create a placeholder
-    content = attachment.title || attachment.description || "[Media attachment]";
+    // Include file metadata in content for context
+    const fileName = attachment.title || "";
+    const fileParams = (() => {
+      try {
+        const p = typeof attachment.params === "string" ? JSON.parse(attachment.params) : attachment.params;
+        return p?.fileSize ? ` (${Math.round(p.fileSize / 1024)}KB)` : "";
+      } catch { return ""; }
+    })();
+
+    content = fileName
+      ? `[File: ${fileName}${fileParams}]`
+      : attachment.description || "[Media attachment]";
   }
 
   // Extract media from quoted/replied message (Zalo sends image in quote.attach)

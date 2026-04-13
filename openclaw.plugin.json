@@ -8,6 +8,10 @@
       "sandboxMaxSizeMB": {
         "type": "number",
         "description": "Max sandbox size per thread in MB. Default: 200"
+      },
+      "allowedFileTypes": {
+        "type": "string",
+        "description": "Comma-separated allowed file extensions, or '*' for all. Default: '*'. Example: 'jpg,png,pdf,docx'"
       }
     }
   }
