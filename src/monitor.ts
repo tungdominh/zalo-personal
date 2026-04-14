@@ -612,6 +612,8 @@ async function processMessage(
 
   const hasControlCommand = core.channel.commands.isControlCommandMessage(rawBody, config);
 
+  console.log(`[zalo-dbg] isGroup=${isGroup} requireMention=${resolvedRequireMention} wasMentioned=${wasMentioned} body="${rawBody.slice(0, 60)}"`);
+
   if (isGroup && resolvedRequireMention) {
     const mentionGate = resolveMentionGatingWithBypass({
       isGroup: true,
@@ -626,6 +628,7 @@ async function processMessage(
     if (mentionGate.shouldSkip) {
       // Buffer for context injection when bot is @mentioned later
       const resolvedName = senderName || await resolveUserName(senderId);
+      console.log(`[zalo-dbg] BUFFERED chatId=${chatId} sender=${resolvedName} content="${rawBody.slice(0, 60)}" bufferSize=${(groupMessageBuffer.get(chatId)?.length ?? 0) + 1}`);
       bufferGroupMessage(chatId, {
         senderName: resolvedName,
         content: rawBody,
@@ -671,6 +674,7 @@ async function processMessage(
 
   // Inject buffered group context when bot is mentioned
   const bufferedContext = isGroup ? consumeGroupBuffer(chatId) : "";
+  console.log(`[zalo-dbg] CONSUME chatId=${chatId} bufferedLen=${bufferedContext.length} preview="${bufferedContext.slice(0, 100)}"`);
 
   // Prepend sender context for group messages so the AI knows who sent what
   let bodyWithSender = isGroup
@@ -751,6 +755,11 @@ async function processMessage(
 
   const ctxPayload = core.channel.reply.finalizeInboundContext({
     Body: body,
+    // BodyForAgent is what the LLM sees — includes sender prefix, buffered group context,
+    // mention enrichment, and envelope headers. OpenClaw's finalizeInboundContext falls back
+    // to CommandBody/RawBody (both rawBody) if BodyForAgent is unset, which would drop our
+    // injected prefixes. Keep RawBody/CommandBody as the raw text for command dispatch.
+    BodyForAgent: body,
     RawBody: rawBody,
     CommandBody: rawBody,
     From: isGroup ? `'zalo-personal':group:${chatId}` : `'zalo-personal':${senderId}`,
