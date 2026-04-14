@@ -79,6 +79,11 @@ export type ZaloPersonalMessage = {
   mediaUrls?: string[];    // Media URLs (images, videos, etc.)
   mediaTypes?: string[];   // MIME types corresponding to mediaUrls
   mentions?: Array<{ uid: string; pos: number; len: number; type: 0 | 1 }>;
+  // Text content of the quoted/replied-to message, if any — injected into
+  // LLM context so the bot sees what the user is replying to even if the
+  // original message is outside the group buffer window.
+  quoteText?: string;
+  quoteSender?: string;
   timestamp: number;
   metadata?: {
     isGroup: boolean;

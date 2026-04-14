@@ -380,7 +380,14 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
   }
 
   // Extract media from quoted/replied message (Zalo sends image in quote.attach)
-  const quote = (data as any).quote as { ownerId?: string; msg?: string; attach?: string } | undefined;
+  const quote = (data as any).quote as { ownerId?: string; msg?: string; attach?: string; fromD?: string } | undefined;
+  // Capture quote text + sender display name so the bot can see what's being replied to
+  let quoteText: string | undefined;
+  let quoteSender: string | undefined;
+  if (quote?.msg && typeof quote.msg === "string" && quote.msg.trim()) {
+    quoteText = quote.msg.trim();
+    quoteSender = typeof quote.fromD === "string" && quote.fromD.trim() ? quote.fromD.trim() : undefined;
+  }
   if (quote?.attach) {
     try {
       const attachData = JSON.parse(quote.attach);
@@ -428,6 +435,8 @@ function convertToZaloPersonalMessage(msg: Message): ZaloPersonalMessage | null 
     mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
     mediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
     mentions: mentions ?? undefined,
+    quoteText,
+    quoteSender,
     timestamp,
     metadata: {
       isGroup,
@@ -683,6 +692,17 @@ async function processMessage(
 
   if (bufferedContext) {
     bodyWithSender = `[Recent group chat (context only, not addressed to you):\n${bufferedContext}\n]\n\n${bodyWithSender}`;
+  }
+
+  // Inject quoted message text so the bot sees what's being replied to.
+  // Quote is authoritative: the user explicitly pointed at this message, so it
+  // takes priority over best-effort group buffer even when both are present.
+  if (message.quoteText) {
+    const quoteHeader = message.quoteSender
+      ? `${message.quoteSender} said`
+      : "Quoted message";
+    bodyWithSender = `[Replying to — ${quoteHeader}:\n${message.quoteText}\n]\n\n${bodyWithSender}`;
+    console.log(`[zalo-dbg] QUOTE chatId=${chatId} from="${message.quoteSender ?? "?"}" preview="${message.quoteText.slice(0, 80)}"`);
   }
 
   // Auto-fetch user info for @mentioned users (enrich context)
