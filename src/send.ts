@@ -9,33 +9,54 @@ const ZALO_MAX_TEXT_LENGTH = 4000;
 const TRUNCATION_SUFFIX = "\n\n[...tin nhắn quá dài, đã cắt bớt]";
 
 /**
- * Convert markdown to Zalo TextStyle.
- * Supports: **bold**, *italic*, __underline__, ~~strikethrough~~,
- * `code` (bold), ### headings (bold), - lists (bullet), 1. lists (numbered)
+ * Convert markdown to Zalo rich text + TextStyle spans.
+ *
+ * Zalo accepts per-range styles matching the client toolbar: Bold / Italic /
+ * Underline / StrikeThrough / Small / Big / color (red, orange, yellow, green)
+ * / UnorderedList / OrderedList / Indent. No monospace. Links are plain text
+ * Zalo auto-detects as tappable.
+ *
+ * Strategy: process each line independently. For each line, peel off its
+ * block marker (heading / bullet / number / blockquote) and emit an
+ * appropriate block-level span for the stripped line content. Then run inline
+ * passes on that line content, tracking offset shifts so inline spans stay
+ * aligned after `**`/`~~`/etc markers are removed. Finally append the line to
+ * the output buffer with newline, accumulating a global cursor so all spans
+ * are stored in FINAL-text offsets.
+ *
+ * Handled:
+ *  - **bold**, ***bold italic*** → Bold
+ *  - *italic*, _italic_          → Italic
+ *  - __underline__               → Underline
+ *  - ~~strikethrough~~           → StrikeThrough
+ *  - `inline code`               → Bold (Zalo has no mono font)
+ *  - ```fenced code blocks```    → strip fences, keep content
+ *  - # / ## / ###… headings       → content becomes Big + Bold (Zalo-native)
+ *  - - / * / + bullets           → UnorderedList span on stripped content
+ *  - 1. 2. 3. numbered lists     → OrderedList span on stripped content
+ *  - [text](url)                 → "text (url)" so URL stays tappable
+ *  - >blockquote                 → "│ text" (Zalo has no quote style)
+ *  - 3+ blank lines              → collapsed to 2
  */
-export function markdownToZaloStyles(input: string): { text: string; styles: Style[] } {
-  const styles: Style[] = [];
-  let text = input;
+type StyleSpan = { start: number; len: number; st: Exclude<TextStyle, TextStyle.Indent> };
 
-  // --- Block-level: headings → bold ---
-  text = text.replace(/^(#{1,6})\s+(.+)$/gm, (_m, _h, content) => content);
-  // We'll apply bold to heading content after inline processing
-
-  // --- Inline patterns (order matters: longer markers first) ---
+/** Inline-markdown passes: mutates `text` by stripping markers and emits
+ *  style spans at offsets relative to the returned text. */
+function applyInlineStyles(text: string): { text: string; styles: StyleSpan[] } {
   const inlinePatterns: Array<{ regex: RegExp; style: TextStyle }> = [
-    { regex: /\*\*\*(.+?)\*\*\*/g, style: TextStyle.Bold },       // ***bold italic*** → bold
-    { regex: /\*\*(.+?)\*\*/g, style: TextStyle.Bold },
-    { regex: /~~(.+?)~~/g, style: TextStyle.StrikeThrough },
-    { regex: /__(.+?)__/g, style: TextStyle.Underline },
-    { regex: /`([^`]+)`/g, style: TextStyle.Bold },                // inline code → bold
-    { regex: /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, style: TextStyle.Italic },
+    { regex: /\*\*\*([^*\n]+)\*\*\*/g, style: TextStyle.Bold },   // ***x*** → Bold (italic lost in Zalo)
+    { regex: /\*\*([^*\n]+)\*\*/g, style: TextStyle.Bold },
+    { regex: /__([^_\n]+)__/g, style: TextStyle.Underline },
+    { regex: /~~([^~\n]+)~~/g, style: TextStyle.StrikeThrough },
+    { regex: /`([^`\n]+)`/g, style: TextStyle.Bold },              // inline code → Bold fallback
+    { regex: /(?<![*\w])\*(?!\*)([^*\n]+?)\*(?!\*)(?!\w)/g, style: TextStyle.Italic },
+    { regex: /(?<![_\w])_(?!_)([^_\n]+?)_(?!_)(?!\w)/g, style: TextStyle.Italic },
   ];
-
+  const styles: StyleSpan[] = [];
   for (const { regex, style } of inlinePatterns) {
     let result = "";
     let lastIndex = 0;
-    const pending: Style[] = [];
-
+    const pending: StyleSpan[] = [];
     regex.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
@@ -43,7 +64,7 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
       const start = result.length;
       const content = match[1];
       result += content;
-      pending.push({ start, len: content.length, st: style as Exclude<TextStyle, TextStyle.Indent> });
+      pending.push({ start, len: content.length, st: style as StyleSpan["st"] });
       lastIndex = match.index + match[0].length;
     }
     if (pending.length > 0) {
@@ -52,8 +73,85 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
       styles.push(...pending);
     }
   }
-
   return { text, styles };
+}
+
+export function markdownToZaloStyles(input: string): { text: string; styles: Style[] } {
+  let src = input;
+
+  // ---- Global pre-normalisation (whole-text, no offset bookkeeping) -------
+  // Strip fenced code block fences, keep inner content as plain text.
+  src = src.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, body) => body.trimEnd());
+  // Collapse 3+ blank lines to 2.
+  src = src.replace(/\n{3,}/g, "\n\n");
+  // [text](url) → "text (url)" (skip if they're identical to avoid "url (url)").
+  src = src.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+|tel:[^\s)]+)\)/g, (_, t, u) => {
+    return t.trim() === u.trim() ? u : `${t} (${u})`;
+  });
+
+  // ---- Per-line pass ------------------------------------------------------
+  const lines = src.split("\n");
+  const outParts: string[] = [];
+  const styles: Style[] = [];
+  let cursor = 0;
+
+  const pushBlockStyle = (start: number, len: number, st: Exclude<TextStyle, TextStyle.Indent>) => {
+    if (len > 0) styles.push({ start, len, st });
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect block type + strip marker → keep `content` + `indent` prefix.
+    let content = line;
+    let indent = "";
+    let blockSpans: Array<Exclude<TextStyle, TextStyle.Indent>> = [];
+    let quotePrefix = "";
+
+    const mHead = /^(#{1,6})[ \t]+(.+)$/.exec(line);
+    const mUl   = !mHead && /^(\s*)[-*+][ \t]+(.+)$/.exec(line);
+    const mOl   = !mHead && !mUl && /^(\s*)\d+\.[ \t]+(.+)$/.exec(line);
+    const mQuote = !mHead && !mUl && !mOl && /^>[ \t]?(.*)$/.exec(line);
+
+    if (mHead) {
+      content = mHead[2].trimEnd();
+      // Big makes headings visibly larger; Bold adds weight for older clients.
+      blockSpans = [TextStyle.Big, TextStyle.Bold];
+    } else if (mUl) {
+      indent = mUl[1];
+      content = mUl[2];
+      blockSpans = [TextStyle.UnorderedList];
+    } else if (mOl) {
+      indent = mOl[1];
+      content = mOl[2];
+      blockSpans = [TextStyle.OrderedList];
+    } else if (mQuote) {
+      content = mQuote[1];
+      quotePrefix = "│ ";
+    }
+
+    // Inline styles on the content only.
+    const { text: styledContent, styles: inlineStyles } = applyInlineStyles(content);
+
+    // Write to output: indent + quotePrefix + styledContent
+    const lineStartInOutput = cursor + indent.length + quotePrefix.length;
+    const lineText = `${indent}${quotePrefix}${styledContent}`;
+    outParts.push(lineText);
+
+    // Emit block spans over the styled content range in FINAL offsets.
+    for (const st of blockSpans) {
+      pushBlockStyle(lineStartInOutput, styledContent.length, st);
+    }
+    // Emit inline spans, shifted by lineStartInOutput.
+    for (const s of inlineStyles) {
+      styles.push({ start: lineStartInOutput + s.start, len: s.len, st: s.st });
+    }
+
+    cursor += lineText.length;
+    if (i < lines.length - 1) { outParts.push("\n"); cursor += 1; }
+  }
+
+  return { text: outParts.join(""), styles };
 }
 
 /** Binary search count of how many entries in `sorted` are strictly less than `value`. */
