@@ -34,8 +34,17 @@ const TRUNCATION_SUFFIX = "\n\n[...tin nhắn quá dài, đã cắt bớt]";
  *  - # / ## / ###… headings       → content becomes Big + Bold (Zalo-native)
  *  - - / * / + bullets           → UnorderedList span on stripped content
  *  - 1. 2. 3. numbered lists     → OrderedList span on stripped content
+ *  -   - nested lists (indent)   → extra Indent span per 2-space level
  *  - [text](url)                 → "text (url)" so URL stays tappable
  *  - >blockquote                 → "│ text" (Zalo has no quote style)
+ *  - <small>text</small>         → Small (f_13) inline span
+ *  - > [!NOTE|TIP|IMPORTANT|…]   → coloured blockquote using GFM admonitions:
+ *      NOTE      → Yellow       (informational)
+ *      TIP       → Green        (positive / suggestion)
+ *      IMPORTANT → Yellow       (emphasis, same as NOTE)
+ *      WARNING   → Orange       (caution)
+ *      CAUTION   → Red          (danger)
+ *      DANGER    → Red          (alias for CAUTION)
  *  - 3+ blank lines              → collapsed to 2
  */
 type StyleSpan = { start: number; len: number; st: Exclude<TextStyle, TextStyle.Indent> };
@@ -44,6 +53,10 @@ type StyleSpan = { start: number; len: number; st: Exclude<TextStyle, TextStyle.
  *  style spans at offsets relative to the returned text. */
 function applyInlineStyles(text: string): { text: string; styles: StyleSpan[] } {
   const inlinePatterns: Array<{ regex: RegExp; style: TextStyle }> = [
+    // <small>small text</small> → Zalo Small font (f_13). HTML-like tag avoids
+    // collision with any markdown syntax; LLMs produce it when asked for
+    // "smaller text" or footnote-style notes.
+    { regex: /<small>([^<\n]+)<\/small>/gi, style: TextStyle.Small },
     { regex: /\*\*\*([^*\n]+)\*\*\*/g, style: TextStyle.Bold },   // ***x*** → Bold (italic lost in Zalo)
     { regex: /\*\*([^*\n]+)\*\*/g, style: TextStyle.Bold },
     { regex: /__([^_\n]+)__/g, style: TextStyle.Underline },
@@ -89,6 +102,39 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
     return t.trim() === u.trim() ? u : `${t} (${u})`;
   });
 
+  // ---- Admonition pre-pass: "> [!TYPE]\n> body..." → stash colour per block -
+  // GFM admonitions turn a blockquote into a call-out. We extract the type
+  // from the first line, drop the marker, and carry a per-line colour
+  // through the rest of the block (lines starting with `>` that follow).
+  // Maps: NOTE/IMPORTANT=Yellow, TIP=Green, WARNING=Orange, CAUTION/DANGER=Red.
+  const ADMONITION_COLOR: Record<string, TextStyle> = {
+    NOTE: TextStyle.Yellow,
+    IMPORTANT: TextStyle.Yellow,
+    TIP: TextStyle.Green,
+    WARNING: TextStyle.Orange,
+    CAUTION: TextStyle.Red,
+    DANGER: TextStyle.Red,
+  };
+  // Pre-scan: map source-line-index → colour TextStyle for blockquote lines.
+  const lineAdmonitionColor: Record<number, TextStyle> = {};
+  {
+    const srcLines = src.split("\n");
+    let active: TextStyle | null = null;
+    for (let j = 0; j < srcLines.length; j++) {
+      const ln = srcLines[j];
+      const mAdm = /^>\s*\[!([A-Z]+)\]\s*$/.exec(ln);
+      if (mAdm) {
+        active = ADMONITION_COLOR[mAdm[1]] ?? null;
+        continue; // marker line; we'll drop it when rendering
+      }
+      if (/^>\s?/.test(ln)) {
+        if (active) lineAdmonitionColor[j] = active;
+      } else {
+        active = null; // blockquote ended → clear
+      }
+    }
+  }
+
   // ---- Per-line pass ------------------------------------------------------
   const lines = src.split("\n");
   const outParts: string[] = [];
@@ -101,6 +147,14 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Skip admonition marker lines outright (the colour is already applied to
+    // the body lines below).
+    if (/^>\s*\[![A-Z]+\]\s*$/.test(line)) {
+      // preserve newline so subsequent blockquote lines stay grouped
+      if (i < lines.length - 1) { outParts.push("\n"); cursor += 1; }
+      continue;
+    }
 
     // Detect block type + strip marker → keep `content` + `indent` prefix.
     let content = line;
@@ -130,6 +184,12 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
       quotePrefix = "│ ";
     }
 
+    // Colour from admonition block (applies to the full line content).
+    const lineColor = lineAdmonitionColor[i];
+    if (lineColor) {
+      blockSpans.push(lineColor as Exclude<TextStyle, TextStyle.Indent>);
+    }
+
     // Inline styles on the content only.
     const { text: styledContent, styles: inlineStyles } = applyInlineStyles(content);
 
@@ -145,6 +205,22 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
     // Emit inline spans, shifted by lineStartInOutput.
     for (const s of inlineStyles) {
       styles.push({ start: lineStartInOutput + s.start, len: s.len, st: s.st });
+    }
+
+    // Emit Indent span for nested list items. Each 2 spaces of source
+    // indentation becomes one level. zca-js encodes Indent by substituting
+    // "$" in "ind_$" with `${indentSize}0` — so indentSize:1 → "ind_10"
+    // (shift level 1), indentSize:2 → "ind_20" (shift level 2), etc.
+    // Indent only applies to real list items; bare indented paragraphs
+    // would look weird with a list-style offset.
+    if ((mUl || mOl) && indent.length >= 2) {
+      const level = Math.floor(indent.length / 2);
+      styles.push({
+        start: lineStartInOutput,
+        len: styledContent.length,
+        st: TextStyle.Indent,
+        indentSize: level,
+      } as Style);
     }
 
     cursor += lineText.length;
