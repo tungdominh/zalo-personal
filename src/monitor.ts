@@ -25,6 +25,7 @@ import { downloadImagesFromUrls } from "./image-downloader.js";
 import { getThreadMediaDir, enforceSandboxSizeLimit } from "./thread-sandbox.js";
 import { addPendingRequest, removePendingRequest } from "./friend-request-store.js";
 import { refreshCredentials } from "./credentials.js";
+import { resolveFormattingGuide } from "./formatting-guide.js";
 
 export type ZaloPersonalMonitorOptions = {
   account: ResolvedZaloPersonalAccount;
@@ -732,6 +733,15 @@ async function processMessage(
         }
       } catch { /* skip if getApi fails */ }
     }
+  }
+
+  // Teach the LLM what Zalo renders. Without this guide, agents reply in
+  // plain text even though the channel can render rich markdown (bold,
+  // lists, coloured callouts, etc). The guide is prepended LAST so it sits
+  // at the very top of the envelope body — most visible to the model.
+  const formattingGuide = resolveFormattingGuide(account.config.formattingGuide);
+  if (formattingGuide) {
+    bodyWithSender = `[Channel formatting guide — follow by default:\n${formattingGuide}\n]\n\n${bodyWithSender}`;
   }
 
   // Download media URLs to local files for native image support (BEFORE creating body)

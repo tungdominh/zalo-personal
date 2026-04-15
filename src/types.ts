@@ -18,6 +18,16 @@ export type ZaloPersonalAccountConfig = {
   >;
   messagePrefix?: string;
   responsePrefix?: string;
+  /**
+   * Formatting guide prepended to every inbound agent turn to teach the LLM
+   * Zalo's rich-text capabilities (markdown → TextStyle). Default: enabled
+   * with built-in guide text. Set enabled=false to disable entirely, or
+   * override `text` to replace the guide with custom instructions.
+   */
+  formattingGuide?: {
+    enabled?: boolean;
+    text?: string;
+  };
 };
 
 export type ZaloPersonalConfig = {
