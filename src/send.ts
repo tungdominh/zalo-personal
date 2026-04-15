@@ -49,13 +49,24 @@ const TRUNCATION_SUFFIX = "\n\n[...tin nhắn quá dài, đã cắt bớt]";
  */
 type StyleSpan = { start: number; len: number; st: Exclude<TextStyle, TextStyle.Indent> };
 
-/** Inline-markdown passes: mutates `text` by stripping markers and emits
- *  style spans at offsets relative to the returned text. */
+/** Inline-markdown passes using a placeholder-token scheme.
+ *
+ *  Naive approach (run each regex on the text and emit spans using result.length)
+ *  breaks when later passes strip characters that lie BEFORE earlier-recorded
+ *  span positions — the earlier spans then point into the wrong part of the
+ *  final text. That's how "__Chữ gạch chân__" ended up covering "ữ gạch chân."
+ *  in the live test: the `**` markers stripped by a later pass shifted the
+ *  underline span by two chars and it was never re-aligned.
+ *
+ *  Fix: replace each matched segment with a sentinel token `\u0001<N>\u0001`,
+ *  stash the original content + style at index N. After all passes are done
+ *  tokens are still unambiguous and their sizes no longer depend on strip
+ *  amounts in other passes. Then a single final walk replaces each token
+ *  with its content at the correct final offset and emits the span. */
 function applyInlineStyles(text: string): { text: string; styles: StyleSpan[] } {
-  const inlinePatterns: Array<{ regex: RegExp; style: TextStyle }> = [
-    // <small>small text</small> → Zalo Small font (f_13). HTML-like tag avoids
-    // collision with any markdown syntax; LLMs produce it when asked for
-    // "smaller text" or footnote-style notes.
+  const patterns: Array<{ regex: RegExp; style: TextStyle }> = [
+    // Order: longer / more-specific markers first so regex doesn't greedy-match
+    // the wrong pattern.
     { regex: /<small>([^<\n]+)<\/small>/gi, style: TextStyle.Small },
     { regex: /\*\*\*([^*\n]+)\*\*\*/g, style: TextStyle.Bold },   // ***x*** → Bold (italic lost in Zalo)
     { regex: /\*\*([^*\n]+)\*\*/g, style: TextStyle.Bold },
@@ -65,28 +76,40 @@ function applyInlineStyles(text: string): { text: string; styles: StyleSpan[] } 
     { regex: /(?<![*\w])\*(?!\*)([^*\n]+?)\*(?!\*)(?!\w)/g, style: TextStyle.Italic },
     { regex: /(?<![_\w])_(?!_)([^_\n]+?)_(?!_)(?!\w)/g, style: TextStyle.Italic },
   ];
+
+  // 1. Tokenise: successive passes replace each match with a sentinel token.
+  //    Already-tokenised content is inert because later regexes don't match
+  //    the token characters (\u0001 + digits + \u0001).
+  const stored: Array<{ content: string; style: TextStyle }> = [];
+  let work = text;
+  for (const { regex, style } of patterns) {
+    work = work.replace(regex, (_whole, content) => {
+      const n = stored.length;
+      stored.push({ content, style });
+      return `\u0001${n}\u0001`;
+    });
+  }
+
+  // 2. Final walk: expand tokens, track spans against the rebuilt string.
   const styles: StyleSpan[] = [];
-  for (const { regex, style } of inlinePatterns) {
-    let result = "";
-    let lastIndex = 0;
-    const pending: StyleSpan[] = [];
-    regex.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(text)) !== null) {
-      result += text.slice(lastIndex, match.index);
-      const start = result.length;
-      const content = match[1];
-      result += content;
-      pending.push({ start, len: content.length, st: style as StyleSpan["st"] });
-      lastIndex = match.index + match[0].length;
-    }
-    if (pending.length > 0) {
-      result += text.slice(lastIndex);
-      text = result;
-      styles.push(...pending);
+  let out = "";
+  let i = 0;
+  while (i < work.length) {
+    if (work.charCodeAt(i) === 0x0001) {
+      const end = work.indexOf("\u0001", i + 1);
+      if (end === -1) { out += work[i++]; continue; }
+      const n = Number(work.slice(i + 1, end));
+      const entry = stored[n];
+      if (!entry) { out += work[i++]; continue; }
+      const start = out.length;
+      out += entry.content;
+      styles.push({ start, len: entry.content.length, st: entry.style as StyleSpan["st"] });
+      i = end + 1;
+    } else {
+      out += work[i++];
     }
   }
-  return { text, styles };
+  return { text: out, styles };
 }
 
 export function markdownToZaloStyles(input: string): { text: string; styles: Style[] } {
@@ -101,6 +124,11 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
   src = src.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+|tel:[^\s)]+)\)/g, (_, t, u) => {
     return t.trim() === u.trim() ? u : `${t} (${u})`;
   });
+
+  // LLMs often emit admonitions as "> [!TIP] content on same line" instead of
+  // the canonical GFM two-line form. Expand the inline variant so the block
+  // pre-scan below treats both shapes identically.
+  src = src.replace(/^(>[ \t]*)\[!([A-Z]+)\][ \t]+(\S.*)$/gm, "$1[!$2]\n> $3");
 
   // ---- Admonition pre-pass: "> [!TYPE]\n> body..." → stash colour per block -
   // GFM admonitions turn a blockquote into a call-out. We extract the type
@@ -149,10 +177,9 @@ export function markdownToZaloStyles(input: string): { text: string; styles: Sty
     const line = lines[i];
 
     // Skip admonition marker lines outright (the colour is already applied to
-    // the body lines below).
+    // the body lines below). Drop the newline too — we don't want a visible
+    // blank line where the marker used to be.
     if (/^>\s*\[![A-Z]+\]\s*$/.test(line)) {
-      // preserve newline so subsequent blockquote lines stay grouped
-      if (i < lines.length - 1) { outParts.push("\n"); cursor += 1; }
       continue;
     }
 
