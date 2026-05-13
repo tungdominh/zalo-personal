@@ -9,7 +9,10 @@ const groupConfigSchema = z.object({
   allow: z.boolean().optional(),
   enabled: z.boolean().optional(),
   requireMention: z.boolean().optional(),
+  allowSelf: z.boolean().optional(),
   denyUsers: z.array(denyFromEntry).optional(),
+  triggerKeywords: z.array(z.string()).optional(),
+  systemPrompt: z.string().optional(),
   tools: ToolPolicySchema,
 });
 
@@ -17,7 +20,7 @@ const zaloPersonalAccountSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional(),
   markdown: MarkdownConfigSchema,
-  dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled"]).optional(),
+  dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled", "silent"]).optional(),
   allowFrom: z.array(allowFromEntry).optional(),
   denyFrom: z.array(denyFromEntry).optional(),
   groupPolicy: z.enum(["disabled", "allowlist", "open"]).optional(),

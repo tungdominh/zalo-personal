@@ -2,8 +2,53 @@ import { ThreadType, TextStyle, type Style, type MessageContent, type Mention, t
 import { getApi } from "./zalo-client.js";
 import { resolveOutboundMentions } from "./mention-parser.js";
 import { redactOutput } from "./output-filter.js";
+import { markOutboundMsgId } from "./outbound-tracker.js";
+import { readOpenClawConfig } from "./config-manager.js";
 import * as fs from "fs";
 import * as path from "path";
+
+// zca-js sendMessage can produce up to TWO server-side messages per call when
+// the payload mixes text + attachment (or oversized text + quote): one for
+// `result.message` and one (or more) for `result.attachment[]`. Each gets a
+// distinct msgId, and EACH is echoed back to the listener. We must mark every
+// returned msgId so the outbound-tracker can drop the echoes — otherwise the
+// untracked one looks like a fresh inbound and the bot reply-loops on its
+// own message.
+function markAllMsgIds(result: any): string | undefined {
+  let primary: string | undefined;
+  const msgFromMessage = result?.message?.msgId;
+  if (msgFromMessage != null) {
+    markOutboundMsgId(String(msgFromMessage));
+    primary = String(msgFromMessage);
+  }
+  const atts = Array.isArray(result?.attachment) ? result.attachment : [];
+  for (const a of atts) {
+    const id = a?.msgId;
+    if (id != null) {
+      markOutboundMsgId(String(id));
+      if (!primary) primary = String(id);
+    }
+  }
+  return primary;
+}
+
+// In silent DM mode we still want OpenClaw's session store to capture the
+// agent's would-be reply (so future recalls have full context), but we must
+// NOT actually push the message to the peer over zca-js. This guard reads
+// the live config every send and short-circuits the network call for DMs
+// while letting the rest of the send() return path run normally.
+function shouldSuppressOutbound(threadId: string, isGroup: boolean): boolean {
+  if (isGroup) return false;
+  try {
+    const cfg = readOpenClawConfig();
+    const channel = cfg.channels?.["zalo-personal"];
+    const accountCfg = channel?.accounts?.default ?? {};
+    const dmPolicy = accountCfg.dmPolicy ?? channel?.dmPolicy ?? "open";
+    return dmPolicy === "silent";
+  } catch {
+    return false;
+  }
+}
 
 const ZALO_MAX_TEXT_LENGTH = 4000;
 const TRUNCATION_SUFFIX = "\n\n[...tin nhắn quá dài, đã cắt bớt]";
@@ -293,6 +338,13 @@ export async function sendMessageZaloPersonal(
     return { ok: false, error: "No threadId provided" };
   }
 
+  // Silent DM mode: agent already produced a reply, we record it via
+  // OpenClaw's session store but do NOT push it to the Zalo peer.
+  if (shouldSuppressOutbound(threadId, options.isGroup === true)) {
+    console.log(`[zalo-personal] suppressed DM outbound to ${threadId} (dmPolicy=silent) text="${text.slice(0, 80)}"`);
+    return { ok: true, messageId: undefined };
+  }
+
   // Handle local file upload (explicit)
   if (options.localPath) {
     return uploadAndSendLocalImage(threadId, options.localPath, {
@@ -361,8 +413,8 @@ export async function sendMessageZaloPersonal(
       threadId.trim(),
       type,
     );
-    const msgId = result?.message?.msgId;
-    return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
+    const msgId = markAllMsgIds(result);
+    return { ok: true, messageId: msgId };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -380,6 +432,11 @@ async function sendMediaZaloPersonal(
     return { ok: false, error: "No media URL provided" };
   }
 
+  if (shouldSuppressOutbound(threadId, options.isGroup === true)) {
+    console.log(`[zalo-personal] suppressed DM media outbound to ${threadId} (dmPolicy=silent)`);
+    return { ok: true, messageId: undefined };
+  }
+
   try {
     const api = await getApi();
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
@@ -393,8 +450,8 @@ async function sendMediaZaloPersonal(
       threadId.trim(),
       type,
     );
-    const msgId = result?.message?.msgId;
-    return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
+    const msgId = markAllMsgIds(result);
+    return { ok: true, messageId: msgId };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -412,6 +469,11 @@ export async function sendLinkZaloPersonal(
     return { ok: false, error: "No URL provided" };
   }
 
+  if (shouldSuppressOutbound(threadId, options.isGroup === true)) {
+    console.log(`[zalo-personal] suppressed DM link outbound to ${threadId} (dmPolicy=silent)`);
+    return { ok: true, messageId: undefined };
+  }
+
   try {
     const api = await getApi();
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
@@ -420,8 +482,8 @@ export async function sendLinkZaloPersonal(
       threadId.trim(),
       type,
     );
-    const msgId = result?.message?.msgId;
-    return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
+    const msgId = markAllMsgIds(result);
+    return { ok: true, messageId: msgId };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -445,6 +507,11 @@ async function uploadAndSendLocalImage(
   }
   if (!localPath?.trim()) {
     return { ok: false, error: "No local path provided" };
+  }
+
+  if (shouldSuppressOutbound(threadId, options.isGroup === true)) {
+    console.log(`[zalo-personal] suppressed DM image outbound to ${threadId} (dmPolicy=silent)`);
+    return { ok: true, messageId: undefined };
   }
 
   // Check if file exists
@@ -482,8 +549,8 @@ async function uploadAndSendLocalImage(
       }
     }
 
-    const msgId = result?.message?.msgId;
-    return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
+    const msgId = markAllMsgIds(result);
+    return { ok: true, messageId: msgId };
   } catch (err) {
     console.error("[zalo-personal] Upload error:", err);
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

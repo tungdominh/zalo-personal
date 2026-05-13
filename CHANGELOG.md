@@ -2,6 +2,22 @@
 
 All notable changes to the zalo-personal OpenClaw extension will be documented in this file.
 
+## [2.4.0] - 2026-05-13
+
+### Added
+- **Self-reply support**: Bot can react to its own messages in opt-in groups, enabling a 1-person "command group" used as a terminal.
+  - `zalo-client.ts`: pass `selfListen: true` when constructing `Zalo` so zca-js delivers own-message events.
+  - `config-schema.ts`: new optional `allowSelf` field on per-group config.
+  - `monitor.ts`: `resolveGroupAllowSelf()` + listener gate that drops self messages unless the originating group sets `allowSelf: true`.
+- **Outbound loop guard**: prevent echo loops when self-reply is enabled.
+  - New `outbound-tracker.ts` module: tracks bot-sent msgIds with a 5-minute TTL and 1000-entry cap.
+  - `send.ts`: every send path calls `markOutboundMsgId(msgId)` after a successful send.
+  - `monitor.ts`: inbound listener short-circuits when the incoming msgId was recently outbound.
+- **Per-thread history store**: append-only log of every inbound message so the agent can recall older context with its Read tool, regardless of `dmPolicy` or mention requirements.
+  - New `history-store.ts` module: JSONL log at `~/.openclaw/workspace/threads/<threadId>/messages.jsonl`, 5MB rolling cap (archives to `messages.prev.jsonl`).
+  - Maintains `~/.openclaw/workspace/peers/zalo-personal.json` index of seen users and groups.
+  - `monitor.ts`: `appendThreadHistory()` + `rememberPeer()` called on every inbound event, in a try/catch so logging failure never blocks the reply pipeline.
+
 ## [1.5.0] - 2026-03-10
 
 ### Added

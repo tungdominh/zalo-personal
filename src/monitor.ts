@@ -20,6 +20,8 @@ import { ThreadType, FriendEventType, Reactions, type API, type Message, type Us
 import type { ResolvedZaloPersonalAccount, ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalMessage } from "./types.js";
 import { getZaloPersonalRuntime } from "./runtime.js";
 import { sendMessageZaloPersonal } from "./send.js";
+import { wasRecentlyOutbound } from "./outbound-tracker.js";
+import { appendThreadHistory, rememberPeer } from "./history-store.js";
 import { getApi, getCurrentUid } from "./zalo-client.js";
 import { downloadImagesFromUrls } from "./image-downloader.js";
 import { getThreadMediaDir, enforceSandboxSizeLimit } from "./thread-sandbox.js";
@@ -53,11 +55,14 @@ const groupMessageBuffer = new Map<string, Array<{
   senderName: string;
   content: string;
   timestamp: number;
+  mediaPaths?: string[];
+  msgId?: string;
 }>>();
 const GROUP_BUFFER_MAX_MESSAGES = 200;
 
 function bufferGroupMessage(groupId: string, entry: {
   senderName: string; content: string; timestamp: number;
+  mediaPaths?: string[]; msgId?: string;
 }): void {
   let buffer = groupMessageBuffer.get(groupId) ?? [];
   buffer.push(entry);
@@ -65,12 +70,22 @@ function bufferGroupMessage(groupId: string, entry: {
   groupMessageBuffer.set(groupId, buffer);
 }
 
-function consumeGroupBuffer(groupId: string): string {
+function consumeGroupBuffer(groupId: string): { text: string; mediaPaths: string[] } {
   const buffer = groupMessageBuffer.get(groupId);
-  if (!buffer || buffer.length === 0) return "";
-  const lines = buffer.map(m => `[${m.senderName}]: ${m.content}`);
+  if (!buffer || buffer.length === 0) return { text: "", mediaPaths: [] };
+  const mediaPaths: string[] = [];
+  const lines = buffer.map(m => {
+    if (m.mediaPaths && m.mediaPaths.length > 0) {
+      const startIdx = mediaPaths.length + 1;
+      const endIdx = startIdx + m.mediaPaths.length - 1;
+      mediaPaths.push(...m.mediaPaths);
+      const range = startIdx === endIdx ? `#${startIdx}` : `#${startIdx}-${endIdx}`;
+      return `[${m.senderName}]: ${m.content} (kèm ${m.mediaPaths.length} ảnh ${range})`;
+    }
+    return `[${m.senderName}]: ${m.content}`;
+  });
   groupMessageBuffer.delete(groupId);
-  return lines.join("\n");
+  return { text: lines.join("\n"), mediaPaths };
 }
 
 // --- Quote reply: cache last inbound message per thread for reply-to ---
@@ -477,6 +492,23 @@ async function processMessage(
     });
   }
 
+  // Capture (lightweight, peer index only) — used by the recall skill as a
+  // fallback when the agent does not have the per-peer session loaded yet.
+  // The full message stream is already persisted by OpenClaw's session
+  // store at ~/.openclaw/agents/main/sessions/<sessionId>.jsonl when the
+  // dmPolicy allows it to reach the agent runtime ("open" or "silent").
+  try {
+    const groupName = isGroup ? await resolveGroupName(chatId).catch(() => undefined) : undefined;
+    const resolvedSenderName = senderName || (await resolveUserName(senderId).catch(() => undefined)) || undefined;
+    rememberPeer({
+      threadId: chatId,
+      isGroup,
+      groupName,
+      senderId,
+      senderName: resolvedSenderName,
+    });
+  } catch {}
+
   // NEW: Global denylist check (runs FIRST, before everything)
   const configDenyFrom = (account.config.denyFrom ?? []).map((v) => String(v));
   if (configDenyFrom.length > 0 && isSenderDenied(senderId, configDenyFrom)) {
@@ -525,6 +557,20 @@ async function processMessage(
         return;
       }
     }
+
+    // Per-group hard disable: honored under any policy (including "open").
+    // Lets us blocklist one chatId without flipping the entire account into allowlist mode.
+    {
+      const candidates = [chatId, `group:${chatId}`];
+      for (const key of candidates) {
+        const entry = groups[key] as any;
+        if (entry && (entry.enabled === false || entry.allow === false)) {
+          console.log(`[zalo-dbg] DROP group ${chatId} (per-group enabled=false / allow=false)`);
+          logVerbose(core, runtime, `'zalo-personal': drop group ${chatId} (per-group disabled)`);
+          return;
+        }
+      }
+    }
   }
 
   const dmPolicy = account.config.dmPolicy ?? "open";
@@ -532,7 +578,7 @@ async function processMessage(
   const rawBody = content.trim();
   const shouldComputeAuth = core.channel.commands.shouldComputeCommandAuthorized(rawBody, config);
   const storeAllowFrom =
-    !isGroup && (dmPolicy !== "open" || shouldComputeAuth)
+    !isGroup && (dmPolicy !== "open" && dmPolicy !== "silent" || shouldComputeAuth)
       ? await core.channel.pairing.readAllowFromStore("zalo-personal").catch(() => [])
       : [];
   const effectiveAllowFrom = [...configAllowFrom, ...storeAllowFrom];
@@ -553,7 +599,10 @@ async function processMessage(
       return;
     }
 
-    if (dmPolicy !== "open") {
+    // "silent" passes inbound to the agent (so the per-peer session captures
+    // it for later recall) but the send layer suppresses any reply going
+    // back to that DM. Treat it like "open" for the rest of this function.
+    if (dmPolicy !== "open" && dmPolicy !== "silent") {
       const allowed = senderAllowedForCommands;
 
       if (!allowed) {
@@ -635,22 +684,32 @@ async function processMessage(
       commandAuthorized: commandAuthorized === true,
     });
 
-    if (mentionGate.shouldSkip) {
-      // Buffer for context injection when bot is @mentioned later
+    const triggerKeywords = resolveGroupTriggerKeywords(account, chatId);
+    const matchedKeyword = bodyMatchesAnyKeyword(rawBody, triggerKeywords);
+
+    if (mentionGate.shouldSkip && !matchedKeyword) {
+      // Buffer for context injection when bot is @mentioned/keyword-triggered later
       const resolvedName = senderName || await resolveUserName(senderId);
-      console.log(`[zalo-dbg] BUFFERED chatId=${chatId} sender=${resolvedName} content="${rawBody.slice(0, 60)}" bufferSize=${(groupMessageBuffer.get(chatId)?.length ?? 0) + 1}`);
+      let bufferedMediaPaths: string[] | undefined;
+      if (message.mediaUrls && message.mediaUrls.length > 0) {
+        const threadMediaDir = getThreadMediaDir(chatId);
+        const downloaded = await downloadImagesFromUrls(message.mediaUrls, threadMediaDir);
+        bufferedMediaPaths = downloaded.filter((p): p is string => !!p);
+        if (bufferedMediaPaths.length > 0) enforceSandboxSizeLimit(chatId);
+      }
+      console.log(`[zalo-dbg] BUFFERED chatId=${chatId} sender=${resolvedName} content="${rawBody.slice(0, 60)}" bufferSize=${(groupMessageBuffer.get(chatId)?.length ?? 0) + 1} media=${bufferedMediaPaths?.length ?? 0}`);
       bufferGroupMessage(chatId, {
         senderName: resolvedName,
         content: rawBody,
         timestamp: timestamp ?? Math.floor(Date.now() / 1000),
+        mediaPaths: bufferedMediaPaths,
+        msgId: message.msgId,
       });
-      // Download media to sandbox
-      if (message.mediaUrls && message.mediaUrls.length > 0) {
-        const threadMediaDir = getThreadMediaDir(chatId);
-        const downloaded = await downloadImagesFromUrls(message.mediaUrls, threadMediaDir);
-        if (downloaded.some(p => p)) enforceSandboxSizeLimit(chatId);
-      }
       return;
+    }
+
+    if (matchedKeyword && !wasMentioned) {
+      console.log(`[zalo-dbg] TRIGGER_KEYWORD chatId=${chatId} keywords=${JSON.stringify(triggerKeywords)} bypassed mention requirement`);
     }
   }
 
@@ -682,9 +741,11 @@ async function processMessage(
     sessionKey: route.sessionKey,
   });
 
-  // Inject buffered group context when bot is mentioned
-  const bufferedContext = isGroup ? consumeGroupBuffer(chatId) : "";
-  console.log(`[zalo-dbg] CONSUME chatId=${chatId} bufferedLen=${bufferedContext.length} preview="${bufferedContext.slice(0, 100)}"`);
+  // Inject buffered group context when bot is mentioned/keyword-triggered
+  const buffered = isGroup ? consumeGroupBuffer(chatId) : { text: "", mediaPaths: [] };
+  const bufferedContext = buffered.text;
+  const bufferedMediaPaths = buffered.mediaPaths;
+  console.log(`[zalo-dbg] CONSUME chatId=${chatId} bufferedLen=${bufferedContext.length} media=${bufferedMediaPaths.length} preview="${bufferedContext.slice(0, 100)}"`);
 
   // Prepend sender context for group messages so the AI knows who sent what
   let bodyWithSender = isGroup
@@ -744,6 +805,12 @@ async function processMessage(
     bodyWithSender = `[Channel formatting guide — follow by default:\n${formattingGuide}\n]\n\n${bodyWithSender}`;
   }
 
+  // Per-group system prompt — overrides defaults; placed at top so it has highest priority.
+  const groupSystemPrompt = isGroup ? resolveGroupSystemPrompt(account, chatId) : undefined;
+  if (groupSystemPrompt) {
+    bodyWithSender = `[Group rules — follow strictly, override defaults if conflicts:\n${groupSystemPrompt}\n]\n\n${bodyWithSender}`;
+  }
+
   // Download media URLs to local files for native image support (BEFORE creating body)
   let localMediaPaths: string[] | undefined;
   if (message.mediaUrls && message.mediaUrls.length > 0) {
@@ -764,9 +831,18 @@ async function processMessage(
 
   const effectiveMediaPaths = localMediaPaths && localMediaPaths.length > 0 ? localMediaPaths : undefined;
 
+  // Merge buffered (prior unmentioned messages) media paths with current message's.
+  // Buffered first so chronological order is preserved; current message media appended at end.
+  const mergedMediaPaths: string[] = [
+    ...bufferedMediaPaths,
+    ...(effectiveMediaPaths ?? []),
+  ];
+
   // Append media to body - use LOCAL paths if downloaded, otherwise URLs
   let bodyForEnvelope = bodyWithSender;
-  const mediaPathsForBody = effectiveMediaPaths ?? message.mediaUrls;
+  const mediaPathsForBody = mergedMediaPaths.length > 0
+    ? mergedMediaPaths
+    : message.mediaUrls;
   if (mediaPathsForBody && mediaPathsForBody.length > 0) {
     const mediaInfo = mediaPathsForBody.map((path, idx) =>
       `[Image ${idx + 1}: ${path}]`
@@ -806,9 +882,9 @@ async function processMessage(
     MessageSid: message.msgId ?? `${timestamp}`,
     OriginatingChannel: "zalo-personal",
     OriginatingTo: `'zalo-personal':${chatId}`,
-    // Media fields — use local paths (current + buffered), fallback to URLs
-    MediaUrls: effectiveMediaPaths ?? message.mediaUrls,
-    MediaUrl: effectiveMediaPaths?.[0] ?? message.mediaUrls?.[0],
+    // Media fields — use local paths (buffered + current), fallback to URLs
+    MediaUrls: mergedMediaPaths.length > 0 ? mergedMediaPaths : message.mediaUrls,
+    MediaUrl: mergedMediaPaths[0] ?? message.mediaUrls?.[0],
     MediaTypes: message.mediaTypes,
   });
 
@@ -847,48 +923,64 @@ async function processMessage(
       }),
   );
 
+  // Delay reaction by ackReactionDelayMs (default 10s). If the agent finishes
+  // replying before the timer fires, we cancel — no point ack'ing a message
+  // that already has a real reply visible. Tâm hates "double ack".
+  const ackDelayMs = (config.messages as any)?.ackReactionDelayMs ?? 10_000;
   let ackReactionPromise: Promise<boolean> | null = null;
+  let ackTimer: NodeJS.Timeout | null = null;
+  let ackCancelled = false;
+  let ackFired = false;
+  const cancelAckIfPending = () => {
+    ackCancelled = true;
+    if (ackTimer) { clearTimeout(ackTimer); ackTimer = null; }
+  };
   if (shouldAck && message.msgId && message.cliMsgId) {
     const ackMsgId = message.msgId;
     const ackCliMsgId = message.cliMsgId;
-    ackReactionPromise = (async () => {
-      try {
-        const api = await getApi();
-        const type = isGroup ? ThreadType.Group : ThreadType.User;
-        const iconMap: Record<string, Reactions> = {
-          heart: Reactions.HEART,
-          love: Reactions.HEART,
-          like: Reactions.LIKE,
-          haha: Reactions.HAHA,
-          wow: Reactions.WOW,
-          sad: Reactions.CRY,
-          cry: Reactions.CRY,
-          angry: Reactions.ANGRY,
-          "👍": Reactions.LIKE,
-          "❤️": Reactions.HEART,
-          "😆": Reactions.HAHA,
-          "😮": Reactions.WOW,
-          "😢": Reactions.CRY,
-          "😠": Reactions.ANGRY,
-          "👀": Reactions.SURPRISE,
-        };
-        const reactionIcon = iconMap[ackReaction.toLowerCase()] ?? (ackReaction as Reactions);
-        await api.addReaction(reactionIcon, {
-          data: { msgId: ackMsgId, cliMsgId: ackCliMsgId },
-          threadId: chatId,
-          type,
-        });
-        return true;
-      } catch (err) {
-        logAckFailure({
-          log: (msg) => logVerbose(core, runtime, msg),
-          channel: "zalo-personal",
-          target: chatId,
-          error: err,
-        });
-        return false;
-      }
-    })();
+    ackReactionPromise = new Promise<boolean>((resolve) => {
+      ackTimer = setTimeout(async () => {
+        ackTimer = null;
+        if (ackCancelled) { resolve(false); return; }
+        ackFired = true;
+        try {
+          const api = await getApi();
+          const type = isGroup ? ThreadType.Group : ThreadType.User;
+          const iconMap: Record<string, Reactions> = {
+            heart: Reactions.HEART,
+            love: Reactions.HEART,
+            like: Reactions.LIKE,
+            haha: Reactions.HAHA,
+            wow: Reactions.WOW,
+            sad: Reactions.CRY,
+            cry: Reactions.CRY,
+            angry: Reactions.ANGRY,
+            "👍": Reactions.LIKE,
+            "❤️": Reactions.HEART,
+            "😆": Reactions.HAHA,
+            "😮": Reactions.WOW,
+            "😢": Reactions.CRY,
+            "😠": Reactions.ANGRY,
+            "👀": Reactions.SURPRISE,
+          };
+          const reactionIcon = iconMap[ackReaction.toLowerCase()] ?? (ackReaction as Reactions);
+          await api.addReaction(reactionIcon, {
+            data: { msgId: ackMsgId, cliMsgId: ackCliMsgId },
+            threadId: chatId,
+            type,
+          });
+          resolve(true);
+        } catch (err) {
+          logAckFailure({
+            log: (msg) => logVerbose(core, runtime, msg),
+            channel: "zalo-personal",
+            target: chatId,
+            error: err,
+          });
+          resolve(false);
+        }
+      }, ackDelayMs);
+    });
   }
 
   // --- Typing indicator: show "typing..." while processing ---
@@ -948,8 +1040,12 @@ async function processMessage(
       },
     });
   } finally {
-    // --- Remove ack reaction after reply (if configured) ---
-    if (shouldAck && message.msgId && message.cliMsgId) {
+    // Reply finished — cancel the pending ack timer if it hasn't fired yet.
+    // (If it already fired before the 10s threshold, we keep the heart in
+    // place; removeAckAfterReply default false honors that.)
+    cancelAckIfPending();
+
+    if (shouldAck && message.msgId && message.cliMsgId && ackFired) {
       const removeMsgId = message.msgId;
       const removeCliMsgId = message.cliMsgId;
       core.channel.reactions.removeAckReactionAfterReply({
@@ -989,6 +1085,49 @@ function resolveGroupMentionSetting(account: ResolvedZaloPersonalAccount, groupI
   }
   return true; // default: require mention in groups
 }
+
+function resolveGroupAllowSelf(account: ResolvedZaloPersonalAccount, groupId: string): boolean {
+  const groups = account.config.groups ?? {};
+  const candidates = [groupId, `group:${groupId}`, "*"];
+  for (const key of candidates) {
+    const entry = groups[key];
+    if (entry && typeof entry.allowSelf === "boolean") {
+      return entry.allowSelf;
+    }
+  }
+  return false; // default: ignore messages from the bot's own account
+}
+
+function resolveGroupTriggerKeywords(account: ResolvedZaloPersonalAccount, groupId: string): string[] {
+  const groups = account.config.groups ?? {};
+  const candidates = [groupId, `group:${groupId}`, "*"];
+  for (const key of candidates) {
+    const entry = groups[key] as any;
+    if (entry && Array.isArray(entry.triggerKeywords)) {
+      return entry.triggerKeywords as string[];
+    }
+  }
+  return [];
+}
+
+function resolveGroupSystemPrompt(account: ResolvedZaloPersonalAccount, groupId: string): string | undefined {
+  const groups = account.config.groups ?? {};
+  const candidates = [groupId, `group:${groupId}`, "*"];
+  for (const key of candidates) {
+    const entry = groups[key] as any;
+    if (entry && typeof entry.systemPrompt === "string" && entry.systemPrompt.trim()) {
+      return entry.systemPrompt;
+    }
+  }
+  return undefined;
+}
+
+function bodyMatchesAnyKeyword(body: string, keywords: string[]): boolean {
+  if (!keywords || keywords.length === 0) return false;
+  const lower = body.toLowerCase();
+  return keywords.some(k => k && lower.includes(k.toLowerCase()));
+}
+
 
 const THINKING_TAG_RE = /^\s*<(?:think|thinking|thought|antthinking)\b[^>]*>/i;
 const REASONING_PREFIX = "Reasoning:\n";
@@ -1367,13 +1506,32 @@ export async function monitorZaloPersonalProvider(
       listenersRegistered = true;
 
       api.listener.on("message", (msg: Message) => {
-        // Skip self messages
-        if (msg.isSelf) {
+        const incomingMsgId = (msg as any)?.data?.msgId;
+        const incomingThread = (msg as any)?.threadId ?? "";
+        const incomingType = (msg as any)?.type;
+        const incomingIsSelf = msg.isSelf;
+        const incomingFromUid = (msg as any)?.data?.uidFrom;
+        console.log(`[zalo-listener] msgId=${incomingMsgId} thread=${incomingThread} type=${incomingType} isSelf=${incomingIsSelf} uidFrom=${incomingFromUid}`);
+        // Always drop messages the bot itself just sent (loop guard, regardless
+        // of allowSelf — we track every outbound msgId for ~5min).
+        if (wasRecentlyOutbound(incomingMsgId)) {
+          console.log(`[zalo-listener] DROP outbound-echo msgId=${incomingMsgId}`);
           return;
         }
-        // Skip messages from our own UID
-        if (selfUid && msg.data.uidFrom === selfUid) {
-          return;
+
+        const isSelfMsg = msg.isSelf || (selfUid && (msg as any)?.data?.uidFrom === selfUid);
+        if (isSelfMsg) {
+          // Self-message: only allow when an explicitly-configured group opts in
+          // via groups[<id>].allowSelf=true, so the operator can use a control
+          // group to dispatch commands to their own bot.
+          const isGroupMsg = msg.type === ThreadType.Group;
+          const groupId = isGroupMsg ? String((msg as any)?.threadId ?? "") : "";
+          const allowSelf = isGroupMsg && groupId ? resolveGroupAllowSelf(account, groupId) : false;
+          console.log(`[zalo-listener] self check: isGroup=${isGroupMsg} groupId=${groupId} allowSelf=${allowSelf}`);
+          if (!isGroupMsg || !groupId || !allowSelf) {
+            console.log(`[zalo-listener] DROP self (no allowSelf for ${groupId})`);
+            return;
+          }
         }
 
         const converted = convertToZaloPersonalMessage(msg);

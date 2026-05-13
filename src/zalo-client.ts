@@ -26,7 +26,7 @@ async function imageMetadataGetter(filePath: string) {
 }
 
 export async function loginWithQR(callback?: QrCallback): Promise<API> {
-  const zalo = new Zalo({ logging: false, imageMetadataGetter });
+  const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
   const api = await zalo.loginQR(undefined, (event) => {
     if (event.type === LoginQRCallbackEventType.GotLoginInfo && event.data) {
       saveCredentials({
@@ -53,7 +53,7 @@ export async function loginWithCredentials(): Promise<API> {
   if (!creds) {
     throw new Error("No saved credentials found. Login with QR first.");
   }
-  const zalo = new Zalo({ logging: false, imageMetadataGetter });
+  const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
   const api = await zalo.login({
     imei: creds.imei,
     cookie: creds.cookie as any,
