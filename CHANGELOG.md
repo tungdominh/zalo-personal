@@ -2,6 +2,11 @@
 
 All notable changes to the zalo-personal OpenClaw extension will be documented in this file.
 
+## [2.4.1] - 2026-05-31
+
+### Fixed
+- **OpenClaw 2026.4.29+ channel discovery**: added `channelConfigs` metadata to `openclaw.plugin.json`. Newer OpenClaw builds the channel registry for CLI surfaces (`channels list`, `channels login`) from the manifest *before* the runtime loads; without `channelConfigs` the channel was invisible to the CLI and `openclaw channels login --channel zalo-personal` failed with `Unsupported channel: zalo-personal`. Runtime/gateway registration was unaffected.
+
 ## [2.4.0] - 2026-05-13
 
 ### Added

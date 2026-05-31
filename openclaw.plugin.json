@@ -1,6 +1,8 @@
 {
   "id": "zalo-personal",
-  "channels": ["zalo-personal"],
+  "channels": [
+    "zalo-personal"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -13,6 +15,16 @@
         "type": "string",
         "description": "Comma-separated allowed file extensions, or '*' for all. Default: '*'. Example: 'jpg,png,pdf,docx'"
       }
+    }
+  },
+  "channelConfigs": {
+    "zalo-personal": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "label": "Zalo Personal",
+      "description": "Zalo personal account via zca-js library (no CLI needed)."
     }
   }
 }
