@@ -19,7 +19,7 @@ export default defineBundledChannelEntry({
     // Register channel plugin (for onboarding & gateway)
     api.registerChannel({ plugin: zaloPersonalPlugin, dock: zaloPersonalDock });
 
-    // Direct HTTP endpoint for external callers / curl
+    // HTTP endpoint for external callers (curl) — requires gateway Bearer token
     api.registerHttpRoute({
       path: "/plugins/zalo-personal/invoke",
       auth: "gateway",
@@ -36,6 +36,12 @@ export default defineBundledChannelEntry({
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result));
       },
+    });
+
+    // WebSocket RPC method — callable by the AI via the `gateway` tool
+    api.registerGatewayMethod("zalo-personal.invoke", async (opts: any) => {
+      const result = await executeZaloPersonalTool("rpc", opts.params as any);
+      opts.respond(true, result);
     });
 
     // Register agent tool — visible to gateway AI with bundled-channel-entry shape

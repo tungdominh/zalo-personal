@@ -239,7 +239,13 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
   // and only on Zalo turns — no impact on Discord/Slack/Telegram replies.
   agentPrompt: {
     messageToolHints: () => [
-      "- Zalo group mentions: tag a member by writing `@Name` (single-word name) or `@[Full Name]` (with spaces). The plugin auto-resolves the name to a real Zalo @mention and sends a notification. Unknown or ambiguous names are left as plain text — never invent a name that is not in the group.",
+      "- Zalo group mentions: tag a member by writing `@Name` (single-word name) or `@[Full Name]` (with spaces). The plugin auto-resolves the name to a real Zalo @mention and sends a notification. Unknown or ambiguous names are left as plain text — never invent a a name that is not in the group.",
+      "- Zalo API actions (find user, send friend request, manage groups, etc.): use the `gateway` tool with method=`zalo-personal.invoke` and pass action params as the body. Examples:",
+      "  • Find user by phone: {\"action\":\"find-user\",\"phoneNumber\":\"0987654321\"}",
+      "  • Send friend request: {\"action\":\"send-friend-request\",\"userId\":\"<id>\",\"requestMessage\":\"Xin chào!\"}",
+      "  • Get my profile: {\"action\":\"me\"}",
+      "  • List groups: {\"action\":\"list-groups\"}",
+      "  Always call find-user first to get userId before sending a friend request.",
     ],
   },
   threading: {

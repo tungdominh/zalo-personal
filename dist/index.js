@@ -34,6 +34,11 @@ export default defineBundledChannelEntry({
                 res.end(JSON.stringify(result));
             },
         });
+        // WebSocket RPC method — callable by the AI via the `gateway` tool
+        api.registerGatewayMethod("zalo-personal.invoke", async (opts) => {
+            const result = await executeZaloPersonalTool("rpc", opts.params);
+            opts.respond(true, result);
+        });
         // Register agent tool — visible to gateway AI with bundled-channel-entry shape
         api.registerTool({
             name: "zalo-personal",
