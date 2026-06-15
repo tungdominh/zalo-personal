@@ -11,6 +11,11 @@ const plugin = {
         setZaloPersonalRuntime(api.runtime);
         // Register channel plugin (for onboarding & gateway)
         api.registerChannel({ plugin: zaloPersonalPlugin, dock: zaloPersonalDock });
+        // Expose all tool actions as direct HTTP gateway methods (works around plain-capability tool registration)
+        api.registerGatewayMethod("zalo-personal.invoke", async (params) => {
+            const { toolCallId = "rpc", ...rest } = (params ?? {});
+            return executeZaloPersonalTool(String(toolCallId), rest);
+        });
         // Register agent tool
         api.registerTool({
             name: "zalo-personal",

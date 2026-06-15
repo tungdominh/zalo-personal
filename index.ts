@@ -3,6 +3,7 @@ import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { zaloPersonalDock, zaloPersonalPlugin } from "./src/channel.js";
 import { setZaloPersonalRuntime } from "./src/runtime.js";
 import { ZaloPersonalToolSchema, executeZaloPersonalTool } from "./src/tool.js";
+import { Static } from "@sinclair/typebox";
 
 const plugin = {
   id: "zalo-personal",
@@ -13,6 +14,12 @@ const plugin = {
     setZaloPersonalRuntime(api.runtime);
     // Register channel plugin (for onboarding & gateway)
     api.registerChannel({ plugin: zaloPersonalPlugin, dock: zaloPersonalDock });
+
+    // Expose all tool actions as direct HTTP gateway methods (works around plain-capability tool registration)
+    api.registerGatewayMethod("zalo-personal.invoke", async (params: unknown) => {
+      const { toolCallId = "rpc", ...rest } = (params ?? {}) as Record<string, unknown>;
+      return executeZaloPersonalTool(String(toolCallId), rest as Static<typeof ZaloPersonalToolSchema>);
+    });
 
     // Register agent tool
     api.registerTool({
