@@ -1,14 +1,16 @@
 import { executeZaloPersonalTool } from "./tool.js";
 
 // Vietnamese mobile numbers: 03x, 05x, 07x, 08x, 09x (10 digits) or +84/84 prefix
-const VN_PHONE_RE = /(?<![0-9])(\+?84|0)(3[2-9]|5[6-9]|7[06-9]|8[0-9]|9[0-9])\d{7}(?![0-9])/g;
+// Allows optional spaces/dashes/dots as separators: "038 362 3346", "038-362-3346"
+const VN_PHONE_RE = /(?<![0-9])(\+?84|0)(3[2-9]|5[6-9]|7[06-9]|8[0-9]|9[0-9])[\s\-.]?\d{3}[\s\-.]?\d{4}(?![0-9])/g;
 
 export function extractVnPhones(text: string): string[] {
   VN_PHONE_RE.lastIndex = 0;
   const found: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = VN_PHONE_RE.exec(text)) !== null) {
-    let phone = m[0];
+    // Normalize: strip separators, convert +84/84 → 0
+    let phone = m[0].replace(/[\s\-.]/g, "");
     if (phone.startsWith("+84")) phone = "0" + phone.slice(3);
     else if (phone.startsWith("84") && !phone.startsWith("0")) phone = "0" + phone.slice(2);
     found.push(phone);
