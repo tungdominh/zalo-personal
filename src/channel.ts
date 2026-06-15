@@ -707,6 +707,7 @@ export const zaloPersonalPlugin: ChannelPlugin<ResolvedZaloPersonalAccount> = {
         account,
         config: ctx.cfg,
         runtime: ctx.runtime,
+        channelRuntime: ctx.channelRuntime,
         abortSignal: ctx.abortSignal,
         statusSink: (patch) => ctx.setStatus({ accountId: ctx.accountId, ...patch }),
       });
