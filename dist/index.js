@@ -1,17 +1,21 @@
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-plugin-common";
+import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 import { zaloPersonalDock, zaloPersonalPlugin } from "./src/channel.js";
+import { ZaloPersonalConfigSchema } from "./src/config-schema.js";
 import { setZaloPersonalRuntime } from "./src/runtime.js";
 import { ZaloPersonalToolSchema, executeZaloPersonalTool } from "./src/tool.js";
-const plugin = {
+export default defineBundledChannelEntry({
     id: "zalo-personal",
     name: "Zalo Personal",
     description: "Zalo personal account messaging via zca-js library",
-    configSchema: emptyPluginConfigSchema(),
-    register(api) {
+    importMetaUrl: import.meta.url,
+    plugin: { specifier: "./src/channel.js", exportName: "zaloPersonalPlugin" },
+    configSchema: buildChannelConfigSchema(ZaloPersonalConfigSchema),
+    registerFull(api) {
         setZaloPersonalRuntime(api.runtime);
         // Register channel plugin (for onboarding & gateway)
         api.registerChannel({ plugin: zaloPersonalPlugin, dock: zaloPersonalDock });
-        // Expose all tool actions as a direct HTTP endpoint (works around plain-capability tool registration)
+        // Direct HTTP endpoint for external callers / curl
         api.registerHttpRoute({
             path: "/plugins/zalo-personal/invoke",
             auth: "gateway",
@@ -30,7 +34,7 @@ const plugin = {
                 res.end(JSON.stringify(result));
             },
         });
-        // Register agent tool
+        // Register agent tool — visible to gateway AI with bundled-channel-entry shape
         api.registerTool({
             name: "zalo-personal",
             label: "Zalo Personal",
@@ -64,5 +68,4 @@ const plugin = {
             execute: executeZaloPersonalTool,
         });
     },
-};
-export default plugin;
+});
