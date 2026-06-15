@@ -27,6 +27,8 @@ const zaloPersonalAccountSchema = z.object({
   groups: z.object({}).catchall(groupConfigSchema).optional(),
   messagePrefix: z.string().optional(),
   responsePrefix: z.string().optional(),
+  autoFriendRequest: z.boolean().optional(),
+  autoFriendRequestMessage: z.string().optional(),
 });
 
 export const ZaloPersonalConfigSchema = zaloPersonalAccountSchema.extend({

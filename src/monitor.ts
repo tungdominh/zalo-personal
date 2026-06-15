@@ -28,6 +28,7 @@ import { getThreadMediaDir, enforceSandboxSizeLimit } from "./thread-sandbox.js"
 import { addPendingRequest, removePendingRequest } from "./friend-request-store.js";
 import { refreshCredentials } from "./credentials.js";
 import { resolveFormattingGuide } from "./formatting-guide.js";
+import { extractVnPhones, autoSendFriendRequests } from "./phone-trigger.js";
 
 export type ZaloPersonalMonitorOptions = {
   account: ResolvedZaloPersonalAccount;
@@ -752,6 +753,18 @@ async function processMessage(
   let bodyWithSender = isGroup
     ? `[userId: ${senderId}, name: ${resolvedSenderName}]: ${rawBody}`
     : rawBody;
+
+  // Phone auto-trigger: detect VN phone numbers → find-user → send-friend-request
+  if ((account.config as any).autoFriendRequest) {
+    const phones = extractVnPhones(rawBody);
+    if (phones.length > 0) {
+      const autoMsg = (account.config as any).autoFriendRequestMessage as string | undefined;
+      const triggerResults = await autoSendFriendRequests(phones, autoMsg);
+      const summary = triggerResults.map(r => r.message).join("\n");
+      bodyWithSender += `\n\n[Kết quả tự động:\n${summary}\n]`;
+      console.log(`[zalo-phone-trigger] phones=${JSON.stringify(phones)} results=${summary}`);
+    }
+  }
 
   if (bufferedContext) {
     bodyWithSender = `[Recent group chat (context only, not addressed to you):\n${bufferedContext}\n]\n\n${bodyWithSender}`;
