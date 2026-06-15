@@ -5,12 +5,12 @@ yarn.lock
 pnpm-lock.yaml
 
 # Build outputs
-dist/
 build/
 *.tsbuildinfo
 *.js
 *.js.map
 !scripts/*.js
+!dist/**
 
 # Testing
 coverage/
