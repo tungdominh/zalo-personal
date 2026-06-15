@@ -18,7 +18,7 @@ function resolveMentionGatingWithBypass(params: {
 }
 import { ThreadType, FriendEventType, Reactions, type API, type Message, type UserMessage, type GroupMessage, type FriendEvent } from "zca-js";
 import type { ResolvedZaloPersonalAccount, ZaloPersonalFriend, ZaloPersonalGroup, ZaloPersonalMessage } from "./types.js";
-import { getZaloPersonalRuntime } from "./runtime.js";
+import { getZaloPersonalRuntime, setZaloPersonalRuntime } from "./runtime.js";
 import { sendMessageZaloPersonal } from "./send.js";
 import { wasRecentlyOutbound } from "./outbound-tracker.js";
 import { appendThreadHistory, rememberPeer } from "./history-store.js";
@@ -1233,6 +1233,7 @@ export async function monitorZaloPersonalProvider(
   let { account, config } = options;
   const { abortSignal, statusSink, runtime } = options;
 
+  setZaloPersonalRuntime(runtime);
   const core = getZaloPersonalRuntime();
   let stopped = false;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;

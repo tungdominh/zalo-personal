@@ -12,7 +12,7 @@ function resolveMentionGatingWithBypass(params) {
     return { shouldSkip: true };
 }
 import { ThreadType, FriendEventType, Reactions } from "zca-js";
-import { getZaloPersonalRuntime } from "./runtime.js";
+import { getZaloPersonalRuntime, setZaloPersonalRuntime } from "./runtime.js";
 import { sendMessageZaloPersonal } from "./send.js";
 import { wasRecentlyOutbound } from "./outbound-tracker.js";
 import { rememberPeer } from "./history-store.js";
@@ -1059,6 +1059,7 @@ async function deliverZaloPersonalReply(params) {
 export async function monitorZaloPersonalProvider(options) {
     let { account, config } = options;
     const { abortSignal, statusSink, runtime } = options;
+    setZaloPersonalRuntime(runtime);
     const core = getZaloPersonalRuntime();
     let stopped = false;
     let restartTimer = null;
