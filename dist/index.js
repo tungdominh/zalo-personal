@@ -11,10 +11,24 @@ const plugin = {
         setZaloPersonalRuntime(api.runtime);
         // Register channel plugin (for onboarding & gateway)
         api.registerChannel({ plugin: zaloPersonalPlugin, dock: zaloPersonalDock });
-        // Expose all tool actions as direct HTTP gateway methods (works around plain-capability tool registration)
-        api.registerGatewayMethod("zalo-personal.invoke", async (params) => {
-            const { toolCallId = "rpc", ...rest } = (params ?? {});
-            return executeZaloPersonalTool(String(toolCallId), rest);
+        // Expose all tool actions as a direct HTTP endpoint (works around plain-capability tool registration)
+        api.registerHttpRoute({
+            path: "/plugins/zalo-personal/invoke",
+            auth: "gateway",
+            handler: async (req, res) => {
+                if (req.method !== "POST") {
+                    res.writeHead(405, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ error: "Method not allowed" }));
+                    return;
+                }
+                const chunks = [];
+                for await (const chunk of req)
+                    chunks.push(chunk);
+                const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+                const result = await executeZaloPersonalTool("http", body);
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify(result));
+            },
         });
         // Register agent tool
         api.registerTool({

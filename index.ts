@@ -3,7 +3,7 @@ import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { zaloPersonalDock, zaloPersonalPlugin } from "./src/channel.js";
 import { setZaloPersonalRuntime } from "./src/runtime.js";
 import { ZaloPersonalToolSchema, executeZaloPersonalTool } from "./src/tool.js";
-import { Static } from "@sinclair/typebox";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 const plugin = {
   id: "zalo-personal",
@@ -15,10 +15,23 @@ const plugin = {
     // Register channel plugin (for onboarding & gateway)
     api.registerChannel({ plugin: zaloPersonalPlugin, dock: zaloPersonalDock });
 
-    // Expose all tool actions as direct HTTP gateway methods (works around plain-capability tool registration)
-    api.registerGatewayMethod("zalo-personal.invoke", async (params: unknown) => {
-      const { toolCallId = "rpc", ...rest } = (params ?? {}) as Record<string, unknown>;
-      return executeZaloPersonalTool(String(toolCallId), rest as Static<typeof ZaloPersonalToolSchema>);
+    // Expose all tool actions as a direct HTTP endpoint (works around plain-capability tool registration)
+    api.registerHttpRoute({
+      path: "/plugins/zalo-personal/invoke",
+      auth: "gateway",
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (req.method !== "POST") {
+          res.writeHead(405, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Method not allowed" }));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+        const result = await executeZaloPersonalTool("http", body);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
+      },
     });
 
     // Register agent tool
