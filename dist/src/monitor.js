@@ -1059,7 +1059,12 @@ async function deliverZaloPersonalReply(params) {
 export async function monitorZaloPersonalProvider(options) {
     let { account, config } = options;
     const { abortSignal, statusSink, runtime } = options;
-    const core = (options.channelRuntime ?? getZaloPersonalRuntime());
+    // Older OpenClaw: api.runtime had .channel.X and .logging.X namespaces
+    // Newer OpenClaw: ctx.channelRuntime exposes .X directly (no .channel wrapper, no .logging)
+    const rawRuntime = (options.channelRuntime ?? getZaloPersonalRuntime());
+    const core = (rawRuntime?.channel
+        ? rawRuntime
+        : { channel: rawRuntime, logging: { shouldLogVerbose: () => false } });
     let stopped = false;
     let restartTimer = null;
     let keepAliveTimer = null;
